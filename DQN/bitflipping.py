@@ -11,23 +11,22 @@ Bit-flipping Environment
     -1 if the current number is not the goal number
 """
 
-class bit_flipping:
+
+class bitflipping(object):
+
     def __init__(self, init_state, goal, length):
         self.state = init_state
         self.goal = goal
-        self.n = length #length of bits
-    
-    def update_state(self, action):
-        state = self.state
-        assert action<self.n, 'action is not allowed!'
+        self.n = length
 
-        state[action] = 1-state[action]
+    def update_state(self, action):
+        assert action < self.n, "Action is not allowed!"
+        state = self.state
+        state[action] = 1 - state[action]
         self.state = state
-        return state
-    
+
     def reward(self, state):
-        if state==self.goal:
+        if state == self.goal:
             return 0
         else:
             return -1
-
