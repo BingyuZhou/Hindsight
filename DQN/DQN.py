@@ -16,12 +16,12 @@ class DQN(bf):
         self.n = n  # action space
         self.discount = discount
 
-    def Q_NN(self, hidden_layer):
+    def Q_NN(self, x, y, hidden_layer):
         """
         Build up the tf.Graph of Q network
         """
-        x = tf.placeholder(tf.float32, shape=(None, self.n + 1))
-        y = tf.placeholder(tf.float32, shape=(None, 1))
+        # x = tf.placeholder(tf.float32, shape=(None, self.n + 1))
+        # y = tf.placeholder(tf.float32, shape=(None, 1))
 
         input = x
         for hid in hidden_layer:
@@ -31,6 +31,19 @@ class DQN(bf):
 
         return Q_pred
 
+    def V_value(self, state, model):
+        Q_base = 0
+        for action in range(self.n):
+            X = np.concatenate((state, action))
+            Q_pred = sess.run(model, feedict={x: X})
+
+            if Q > Q_base:
+                Q_max = Q
+                action_opt = action
+                Q_base = Q
+
+        return Q_max, action_opt
+
     def eps_greedy(self, state, sess, model):
         """
         Epsilon greedy policy
@@ -39,22 +52,11 @@ class DQN(bf):
 
         state = np.asarray(state, dtype=int)
 
-        model = tf.estimator.Estimator(
-            model_fn=Q_NN, model_dir='/tmp/bitflipping')
-
         if (p < self.eps):  # random action
             action = random.randint(0, self.n - 1)
             return action
         else:  # greedy policy
-            Q_base = 0
-            for action in range(self.n):
-                X = np.concatenate((state, action))
-                Q_pred = sess.run(model, feedict={x: X})
-
-                if Q > Q_base:
-                    Q_max = Q
-                    action_opt = action
-                    Q_base = Q
+            _, action_opt = V_value(state, model)
             return action_opt
 
     def _init_state(self):
@@ -66,8 +68,6 @@ class DQN(bf):
                 state.append(0)
 
         return state
-
-    def loss(self, y, y_pred):
 
     def tain_Q(self, model, episode, T):
         """
@@ -88,25 +88,38 @@ class DQN(bf):
                     r = bf.bitflipping.reward(s)
                     s_next = bf.bitflipping.update_state(a)
 
-                    replay_buffer = np.append(replay_buffer.reshape, [np.concatenate(
+                    replay_buffer = np.append(replay_buffer, [np.concatenate(
                         (s, np.array([[a]]), s_next, np.array([[r]]))], axis=0)
 
                     # Sample random minibatches from the replay buffer to update Q-network
                     # use half of replay buffer to do minibatch gradient descent
-                    batch_size=len(replay_buffer) / 2
+                    batch_size=replay_buffer.shape[0] / 2
                     mini_batch_index=np.random.choice(
-                        len(replay_buffer), batch_size, replace=False)
+                        replay_buffer.shape[0], batch_size, replace=False)
 
                     batch=replay_buffer(mini_batch_index)
 
                     # Predicted Q values
-                    Q_pred=sess.run(model, feedict={x: batch[:, 0:2]})
-
+                    
+                    Q_true = np.zeros((batch.shape[0],))
                     # True Q values
-                    if (np.array_equal()):
-                        Q_true=batch[:, -1]
-                    else:
-                        Q_a_0 = sess.run(model, feed_dict={x:})
+                    for i in range(batch.shape[0]):
+                        next_state = batch[i, self.n+1 : 2*self.n+1]
+                        if np.array_equal(next_state, self.goal): # if next state is goal state
+                            Q_true_i = batch[i, -1]
+                        else:
+                            V, _ = V_value(next_state, model)
+                            Q_true_i=batch[i, -1]+self.discount * V # Bellman equation
+                        Q_true[i] = Q_true_i
 
-                        Q_true=batch[:, -1]+self.discount * \
-                            Q_max_s_next  # Bellman equation
+                    Q_pred = Q_NN(batch[:, 0:n+1], Q_true, hidden_layer=hid)
+                    
+                    # Loss 
+                    loss = tf.loss.mean_squared_error(Q_true, Q_pred)
+
+                    # Optimizer
+                    optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.01)
+                    train_step = optimizer.minimize(loss)
+
+                    # Update Q-network
+                    ls = session.run(loss)
