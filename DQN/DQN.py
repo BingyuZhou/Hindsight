@@ -9,11 +9,12 @@ class DQN(bf):
     DQN solver
     """
 
-    def __init__(self, eps=1, annealing=0.9, replay_buffer_size=1000, n):
+    def __init__(self, eps=1, annealing=0.9, replay_buffer_size=1000, n, discount=0.98):
         self.eps = eps  # epsilon-greedy policy
         self.annealing = annealing  # annealing of epsilon
         self.replay_buffer_size = replay_buffer_size  # replay buffer size
         self.n = n  # action space
+        self.discount = discount
 
     def Q_NN(self, hidden_layer):
         """
@@ -66,12 +67,14 @@ class DQN(bf):
 
         return state
 
+    def loss(self, y, y_pred):
+
     def tain_Q(self, model, episode, T):
         """
         DQN algorithm for training Q network
         """
         saver = tf.train.Saver()
-        replay_buffer = []
+        replay_buffer = np.array([]).reshape((-1, self.n*2+2))
         with tf.Session() as sess:
             writer = tf.summary.FileWriter(
                 './summary/', sess.graph)  # tensorboard
@@ -85,4 +88,25 @@ class DQN(bf):
                     r = bf.bitflipping.reward(s)
                     s_next = bf.bitflipping.update_state(a)
 
-                    replay_buffer.append((s,a,s_next,r))
+                    replay_buffer = np.append(replay_buffer.reshape, [np.concatenate(
+                        (s, np.array([[a]]), s_next, np.array([[r]]))], axis=0)
+
+                    # Sample random minibatches from the replay buffer to update Q-network
+                    # use half of replay buffer to do minibatch gradient descent
+                    batch_size=len(replay_buffer) / 2
+                    mini_batch_index=np.random.choice(
+                        len(replay_buffer), batch_size, replace=False)
+
+                    batch=replay_buffer(mini_batch_index)
+
+                    # Predicted Q values
+                    Q_pred=sess.run(model, feedict={x: batch[:, 0:2]})
+
+                    # True Q values
+                    if (np.array_equal()):
+                        Q_true=batch[:, -1]
+                    else:
+                        Q_a_0 = sess.run(model, feed_dict={x:})
+
+                        Q_true=batch[:, -1]+self.discount * \
+                            Q_max_s_next  # Bellman equation
