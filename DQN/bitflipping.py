@@ -11,6 +11,8 @@ Bit-flipping Environment
     -1 if the current number is not the goal number
 """
 
+import numpy as np
+
 
 class bitflipping(object):
 
@@ -26,7 +28,7 @@ class bitflipping(object):
         self.state = state
 
     def reward(self, state):
-        if state == self.goal:
+        if np.array_equal(state, self.goal):
             return 0
         else:
             return -1
