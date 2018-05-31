@@ -14,18 +14,17 @@ Bit-flipping Environment
 import numpy as np
 
 
-class bitflipping(object):
+class bitflipping:
 
     def __init__(self, init_state, goal, length):
-        self.state = init_state
+        self.state = np.copy(init_state)
         self.goal = goal
         self.n = length
 
     def update_state(self, action):
         assert action < self.n, "Action is not allowed!"
-        state = self.state
-        state[action] = 1 - state[action]
-        self.state = state
+        self.state[action] = 1 - self.state[action]
+        return self.state
 
     def reward(self, state):
         if np.array_equal(state, self.goal):

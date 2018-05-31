@@ -9,12 +9,13 @@ class DQN:
     DQN solver
     """
 
-    def __init__(self, n, discount=0.98, eps=1, annealing=0.9, replay_buffer_size=1000):
+    def __init__(self, x, hid, n, discount=0.98, eps=1, annealing=0.9, replay_buffer_size=1000):
         self.eps = eps  # epsilon-greedy policy
         self.annealing = annealing  # annealing of epsilon
         self.replay_buffer_size = replay_buffer_size  # replay buffer size
         self.n = n  # action space
         self.discount = discount
+        self.model = self.Q_NN(x, hid)
 
     def Q_NN(self, x, hidden_layer):
         """
@@ -29,48 +30,48 @@ class DQN:
 
         return Q_pred
 
-    def run_model(self, session, Q_pred, loss, train_step, x, Q_true, is_training):
+    def run_model(self, session, loss, train_step, x, y, X, Q_true, is_training):
         """
         Compute the tf.Graph
         """
 
         if is_training:
             # Update Q-network
-            ls = session.run([loss, train_step], feedict={x: x, y: Q_true})
+            ls, _ = session.run([loss, train_step],
+                                feed_dict={x: X, y: Q_true})
         else:
-            ls = session.run(loss, feedict={x: x, y: Q_true})
+            ls = session.run(loss, feed_dict={x: X, y: Q_true})
 
         return ls
 
-    def V_value(self, sess, state, model):
+    def V_value(self, sess, state, x):
         """
         V = max_a Q(s,a)
         """
-        Q_base = 0
+        Q_base = -100
+        Q_max = None
         for action in range(self.n):
-            X = np.concatenate((state, action))
-            Q_pred = sess.run(model, feedict={x: X, y: y})
+            X = np.concatenate((state, np.array([action])))
+            Q_pred = sess.run(self.model, feed_dict={x: X.reshape((1, -1))})
 
-            if Q > Q_base:
-                Q_max = Q
+            if Q_pred > Q_base:
+                Q_max = Q_pred
                 action_opt = action
-                Q_base = Q
+                Q_base = Q_pred
 
         return Q_max, action_opt
 
-    def eps_greedy(self, state, sess, model):
+    def eps_greedy(self, state, sess, x):
         """
         Epsilon greedy policy
         """
         p = random.random()
 
-        state = np.asarray(state, dtype=int)
-
         if (p < self.eps):  # random action
             action = random.randint(0, self.n - 1)
             return action
         else:  # greedy policy
-            _, action_opt = self.V_value(sess, state, model)
+            _, action_opt = self.V_value(sess, state, x)
             return action_opt
 
     def _sample_state(self):
@@ -86,20 +87,13 @@ class DQN:
 
         return np.asarray(state)
 
-    def train_Q(self, episode, T):
+    def train_Q(self, x, y, episode, T):
         """
         DQN algorithm for training Q network
         """
         saver = tf.train.Saver()
         replay_buffer = np.array([]).reshape((-1, self.n*2+2))
         rb_ind = 0  # index used for replay_buffer
-
-        x = tf.placeholder(tf.float32, shape=(None, self.n + 1))
-        y = tf.placeholder(tf.float32, shape=(None, 1))
-        hid = [20, 20]
-
-        # Predicted Q values
-        Q_pred = self.Q_NN(x, hid)
 
         with tf.Session() as sess:
             writer = tf.summary.FileWriter(
@@ -114,28 +108,31 @@ class DQN:
                 env = bf(s, goal, self.n)  # bitflipping env
 
                 for t in range(T):
-                    a = self.eps_greedy(s, sess, model)
+                    a = self.eps_greedy(s, sess, x)
                     r = env.reward(s)
                     s_next = env.update_state(a)
 
                     if (replay_buffer.shape[0] < self.replay_buffer_size):
                         replay_buffer = np.append(replay_buffer, np.concatenate(
-                            (s, np.array([[a]]), s_next, np.array([[r]]))), axis=0)
+                            (s.reshape((1, -1)), np.array([[a]]), s_next.reshape((1, -1)), np.array([[r]])), axis=1), axis=0)
                     else:
                         replay_buffer[rb_ind, :] = np.concatenate(
-                            (s, np.array([[a]]), s_next, np.array([[r]])))
+                            (s.reshape((1, -1)), np.array([[a]]), s_next.reshape((1, -1)), np.array([[r]])))
                         rb_ind = (rb_ind+1) % self.replay_buffer_size
+
+                    s = np.copy(s_next)
 
                     # Sample random minibatches from the replay buffer to update Q-network
                     # use half of replay buffer to do minibatch gradient descent
-                    batch_size = replay_buffer.shape[0] / 2
+                    batch_size = max(1, int(replay_buffer.shape[0]))
                     mini_batch_index = np.random.choice(
                         replay_buffer.shape[0], batch_size, replace=False)
 
-                    batch = replay_buffer(mini_batch_index)
+                    batch = replay_buffer[mini_batch_index]
+                    print(batch)
 
                     # True Q values
-                    Q_true = np.zeros((batch.shape[0],))
+                    Q_true = np.zeros((batch.shape[0], 1))
 
                     for i in range(batch.shape[0]):
                         next_state = batch[i, self.n+1: 2*self.n+1]
@@ -143,13 +140,14 @@ class DQN:
                         if np.array_equal(next_state, goal):
                             Q_true_i = batch[i, -1]
                         else:
-                            V, _ = self.V_value(sess, next_state, model)
+                            V, _ = self.V_value(sess, next_state, x)
                             # Bellman equation
                             Q_true_i = batch[i, -1]+self.discount * V
                         Q_true[i] = Q_true_i
 
                     # Loss
-                    loss = tf.losses.mean_squared_error(y, Q_pred)
+                    loss = tf.losses.mean_squared_error(y, self.model)
+                    loss_sum = tf.summary.scalar('loss', loss)
 
                     # Optimizer
                     optimizer = tf.train.GradientDescentOptimizer(
@@ -158,7 +156,7 @@ class DQN:
 
                     # Update Q-network with the sampled batch data
                     ls = self.run_model(
-                        sess, Q_pred, loss, train_step, batch[:, 0:self.n+1], Q_true, True)
+                        sess, loss, train_step, x, y, batch[:, 0:self.n+1], Q_true, True)
 
                     losses.append(ls)
                     print('Episode {0}: loss is {1:.3g}'.format(ep, ls))
