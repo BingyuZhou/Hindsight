@@ -26,11 +26,11 @@ class DQN:
         self.n = n  # action space
         self.discount = discount
         self.tau = tau
-        self.model = self.Q_NN(x, hid)
+        self.model = self.Q_NN(x, hid, True, "model")
         # Target NN used to compute targets for the sake of training stability
-        self.targetModel = self.Q_NN(x, hid)
+        self.targetModel = self.Q_NN(x, hid, False, "targetmodel")
 
-    def Q_NN(self, x, hidden_layer):
+    def Q_NN(self, x, hidden_layer, is_training, scope):
         """
         Build up the model of Q-NN
         - x: {state, goal}
@@ -40,45 +40,25 @@ class DQN:
 
         input = x
         # Xavier initializer
-
-        init = tf.contrib.layers.xavier_initializer()
-        for hid in hidden_layer:
-            h = tf.layers.dense(
-                input,
-                hid,
-                activation=tf.nn.relu,
+        with tf.variable_scope(scope):
+            init = tf.contrib.layers.xavier_initializer()
+            for hid in hidden_layer:
+                h = tf.layers.dense(
+                    input,
+                    hid,
+                    activation=tf.nn.relu,
+                    kernel_initializer=init,
+                    bias_initializer=tf.zeros_initializer(),
+                    trainable=is_training)
+                input = h
+            Q_pred = tf.layers.dense(
+                h,
+                self.n,
                 kernel_initializer=init,
-                bias_initializer=tf.zeros_initializer())
-            input = h
-        Q_pred = tf.layers.dense(
-            h,
-            self.n,
-            kernel_initializer=init,
-            bias_initializer=tf.zeros_initializer())  # output layer
+                bias_initializer=tf.zeros_initializer(),
+                trainable=is_training)  # output layer
 
         return Q_pred
-
-    # def run_model(self, session, loss, train_step, merged_tb, x, y, X, Q_true,
-    #               is_training):
-    #     """
-    #     Compute the tf.Graph
-    #     """
-
-    #     if is_training:
-    #         # Update Q-network
-    #         ls, _, summary = session.run(
-    #             [loss, train_step, merged_tb], feed_dict={
-    #                 x: X,
-    #                 y: Q_true
-    #             })
-    #     else:
-    #         ls, summary = session.run(
-    #             [loss, merged_tb], feed_dict={
-    #                 x: X,
-    #                 y: Q_true
-    #             })
-
-    #     return ls, summary
 
     def V_value(self, sess, state, goal, x):
         """
@@ -128,14 +108,20 @@ class DQN:
         """
         Update target model
         """
-        var_list = tf.trainable_variables()
-        n = len(var_list)
+        model_var_list = tf.get_collection(
+            tf.GraphKeys.TRAINABLE_VARIABLES, scope="model")
+        target_var_list = tf.get_collection(
+            tf.GraphKeys.GLOBAL_VARIABLES, scope="targetmodel")
+        # n = len(var_list)
         op = []  # operation to transfer weights and bias
-        for i in range(n // 2):
-            # decay coefficients
-            decay_value = (
-                1.0 - self.tau) * var_list[i] + self.tau * var_list[i + n // 2]
-            op.append(var_list[i + n // 2].assign(decay_value))
+        # for i in range(n // 2):
+        #     # decay coefficients
+        #     decay_value = (
+        #         1.0 - self.tau) * var_list[i] + self.tau * var_list[i + n // 2]
+        #     op.append(var_list[i + n // 2].assign(decay_value))
+        for i, var in enumerate(target_var_list):
+            decay_value = (1.0 - self.tau) * model_var_list[i] + self.tau * var
+            op.append(var.assign(decay_value))
         sess.run(op)
 
     def train_Q(self, x, y, epoch, cycles, episode, T, iteration):
@@ -155,17 +141,23 @@ class DQN:
             y,
             tf.reduce_sum(tf.multiply(self.model, a_onehot), axis=1),
             reduction=tf.losses.Reduction.MEAN)
+        # loss = tf.clip_by_value(
+        #     (y - tf.reduce_sum(tf.multiply(self.model, a_onehot), axis=1)), -1,
+        #     1)
+        # loss = tf.losses.mean_squared_error(
+        #     0, loss, reduction=tf.losses.Reduction.MEAN)
         loss_tb = tf.summary.scalar('loss', loss)
 
-        W1 = tf.trainable_variables('dense/kernel:0')
-        W1_target = tf.trainable_variables('dense_2/kernel:0')
+        W1 = tf.trainable_variables('model/dense/kernel:0')
+        W1_target = tf.global_variables('targetmodel/dense/kernel:0')
         W1_tb = tf.summary.histogram('W1', W1[0])
         W1_target_tb = tf.summary.histogram('W2', W1_target[0])
 
         merge_tb = tf.summary.merge_all()
 
         # Optimizer
-        optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
+        optimizer = tf.train.RMSPropOptimizer(
+            learning_rate=1e-3, decay=0.9, momentum=0)
         train_step = optimizer.minimize(loss)
 
         with tf.Session() as sess:
@@ -262,6 +254,7 @@ class DQN:
                                 Q_true_i = np.clip(
                                     batch[i, -1] + self.discount * V,
                                     -1.0 / (1.0 - self.discount), 0)
+
                             Q_true[i] = Q_true_i
 
                         # Update Q-network with the sampled batch data
