@@ -49,14 +49,16 @@ class DQN:
                     activation=tf.nn.relu,
                     kernel_initializer=init,
                     bias_initializer=tf.zeros_initializer(),
-                    trainable=is_training)
+                    trainable=is_training,
+                    reuse=False)
                 input = h
             Q_pred = tf.layers.dense(
                 h,
                 self.n,
                 kernel_initializer=init,
                 bias_initializer=tf.zeros_initializer(),
-                trainable=is_training)  # output layer
+                trainable=is_training,
+                reuse=False)  # output layer
 
         return Q_pred
 
@@ -82,7 +84,7 @@ class DQN:
         """
         p = random.random()
 
-        eps_current = max(0.1, self.eps * (self.annealing**global_i))
+        eps_current = max(0.05, 1 - 9e-5 * global_i)
 
         if (p < eps_current):  # random action
             action = random.randint(0, self.n - 1)
@@ -153,11 +155,14 @@ class DQN:
         W1_tb = tf.summary.histogram('W1', W1[0])
         W1_target_tb = tf.summary.histogram('W2', W1_target[0])
 
+        success = tf.Variable(
+            initial_value=0, name='success_rate', trainable=False)
+        success_tb = tf.summary.scalar('success_rate', success)
+
         merge_tb = tf.summary.merge_all()
 
         # Optimizer
-        optimizer = tf.train.RMSPropOptimizer(
-            learning_rate=1e-3, decay=0.9, momentum=0)
+        optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
         train_step = optimizer.minimize(loss)
 
         with tf.Session() as sess:
@@ -168,13 +173,14 @@ class DQN:
             losses = []
             success_all = []
 
-            gloabl_i = 0
+            global_i = 0
 
             self.update_target_model(sess)
             for e in range(epoch):
 
                 for cycle in range(cycles):
-                    success = 0
+                    assign = success.assign(0)
+                    assign.eval()
                     for ep in range(episode):
 
                         # initialize a bitflipping env
@@ -188,10 +194,11 @@ class DQN:
                         # Sample training data set
                         for t in range(T):
                             if np.array_equal(s, goal):
-                                success += 1
+                                assign_add = success.assign_add(1)
+                                assign_add.eval()
                                 break
 
-                            a = self.eps_greedy(gloabl_i, s, goal, sess, x)
+                            a = self.eps_greedy(global_i, s, goal, sess, x)
 
                             s_next = env.update_state(a)
                             r = env.reward(s_next)
@@ -218,8 +225,8 @@ class DQN:
                                 rb_ind = (rb_ind + 1) % self.replay_buffer_size
 
                             s = np.copy(s_next)
-                        gloabl_i += 1
-                    success_all.append(success)
+                        global_i += 1
+                    # success_all.append(success)
                     # end of experience replay
 
                     # One step optimization of Q neural network
@@ -233,7 +240,9 @@ class DQN:
                                 replace=False)
                         else:
                             mini_batch_index = np.random.choice(
-                                replay_buffer.shape[0], self.batch_size)
+                                replay_buffer.shape[0],
+                                self.batch_size,
+                                replace=True)
 
                         batch = replay_buffer[mini_batch_index]
 
@@ -260,8 +269,8 @@ class DQN:
                         # Update Q-network with the sampled batch data
 
                         input = batch[:, 0:2 * self.n]
-                        ls, _, summary = sess.run(
-                            [loss, train_step, merge_tb],
+                        ls, _, _, summary = sess.run(
+                            [loss, train_step, success, merge_tb],
                             feed_dict={
                                 x: input,
                                 y: Q_true,
