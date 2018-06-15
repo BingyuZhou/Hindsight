@@ -71,12 +71,11 @@ class DQN:
         X = np.concatenate(
             (state.reshape((1, -1)), goal.reshape((1, -1))), axis=1)
         Q_target_nn = sess.run(self.targetModel, feed_dict={x: X})
-        Q_current_nn = sess.run(self.model, feed_dict={x: X})
 
-        action_opt = np.argmax(Q_current_nn, axis=1)
+        action_opt = np.argmax(Q_target_nn)
         Q_max = Q_target_nn[:, action_opt]
 
-        return Q_max, action_opt[0]
+        return Q_max, action_opt
 
     def eps_greedy(self, global_i, state, goal, sess, x):
         """
@@ -84,7 +83,7 @@ class DQN:
         """
         p = random.random()
 
-        eps_current = max(0.05, 1 - 9e-5 * global_i)
+        eps_current = max(0.1, 1 - 4e-4 * global_i)
 
         if (p < eps_current):  # random action
             action = random.randint(0, self.n - 1)
@@ -136,9 +135,9 @@ class DQN:
         a_onehot = tf.one_hot(action, self.n)
 
         replay_buffer = np.array([]).reshape((-1, self.n * 3 + 2))
-        rb_ind = 0  # index used for replay_buffer
 
         # Loss
+
         loss = tf.losses.mean_squared_error(
             y,
             tf.reduce_sum(tf.multiply(self.model, a_onehot), axis=1),
@@ -155,9 +154,9 @@ class DQN:
         W1_tb = tf.summary.histogram('W1', W1[0])
         W1_target_tb = tf.summary.histogram('W2', W1_target[0])
 
-        success = tf.Variable(
-            initial_value=0, name='success_rate', trainable=False)
-        success_tb = tf.summary.scalar('success_rate', success)
+        success_rate = tf.Variable(
+            initial_value=0.0, name='success_rate', trainable=False)
+        success_tb = tf.summary.scalar('success_rate', success_rate)
 
         merge_tb = tf.summary.merge_all()
 
@@ -179,8 +178,7 @@ class DQN:
             for e in range(epoch):
 
                 for cycle in range(cycles):
-                    assign = success.assign(0)
-                    assign.eval()
+                    success = 0
                     for ep in range(episode):
 
                         # initialize a bitflipping env
@@ -194,8 +192,7 @@ class DQN:
                         # Sample training data set
                         for t in range(T):
                             if np.array_equal(s, goal):
-                                assign_add = success.assign_add(1)
-                                assign_add.eval()
+                                success += 1
                                 break
 
                             a = self.eps_greedy(global_i, s, goal, sess, x)
@@ -217,16 +214,23 @@ class DQN:
                                         axis=1),
                                     axis=0)
                             else:
-                                replay_buffer[rb_ind, :] = np.concatenate(
-                                    (s.reshape((1, -1)), goal.reshape((1, -1)),
-                                     np.array([[a]]), s_next.reshape(
-                                         (1, -1)), np.array([[r]])),
-                                    axis=1)
-                                rb_ind = (rb_ind + 1) % self.replay_buffer_size
+                                replay_buffer = np.delete(
+                                    replay_buffer, 0, axis=0)
+                                replay_buffer = np.append(
+                                    replay_buffer,
+                                    np.concatenate(
+                                        (s.reshape(
+                                            (1, -1)), goal.reshape(
+                                                (1, -1)), np.array([[a]]),
+                                         s_next.reshape(
+                                             (1, -1)), np.array([[r]])),
+                                        axis=1),
+                                    axis=0)
 
                             s = np.copy(s_next)
                         global_i += 1
-                    # success_all.append(success)
+                    success_rate_op = success_rate.assign(success / episode)
+
                     # end of experience replay
 
                     # One step optimization of Q neural network
@@ -270,7 +274,7 @@ class DQN:
 
                         input = batch[:, 0:2 * self.n]
                         ls, _, _, summary = sess.run(
-                            [loss, train_step, success, merge_tb],
+                            [loss, train_step, success_rate_op, merge_tb],
                             feed_dict={
                                 x: input,
                                 y: Q_true,
