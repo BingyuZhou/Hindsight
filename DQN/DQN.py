@@ -75,10 +75,10 @@ class DQN:
             (state.reshape((1, -1)), goal.reshape((1, -1))), axis=1)
         Q_target_nn = sess.run(self.targetModel, feed_dict={x: X})
 
-        action_opt = np.argmax(Q_target_nn, axis=1)
+        action_opt = np.argmax(Q_target_nn)
         Q_max = Q_target_nn[:, action_opt]
 
-        return Q_max, action_opt[0]
+        return Q_max, action_opt
 
     def eps_greedy(self, global_i, state, goal, sess, x):
         """
@@ -138,7 +138,6 @@ class DQN:
         a_onehot = tf.one_hot(action, self.n)
 
         replay_buffer = np.array([]).reshape((-1, self.n * 3 + 2))
-        rb_ind = 0  # index used for replay_buffer
 
         # Loss
         Q_pred = tf.reduce_sum(self.model * a_onehot, axis=1)
@@ -163,6 +162,8 @@ class DQN:
         success_rate = tf.Variable(
             initial_value=0.0, name='success_rate', trainable=False)
         success_tb = tf.summary.scalar('success_rate', success_rate)
+
+        merge_tb = tf.summary.merge_all()
 
         # Optimizer
         global_step = tf.train.get_or_create_global_step()
