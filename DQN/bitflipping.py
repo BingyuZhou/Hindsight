@@ -12,22 +12,49 @@ Bit-flipping Environment
 """
 
 import numpy as np
+import random
 
 
 class bitflipping:
-
-    def __init__(self, init_state, goal, length):
-        self.state = np.copy(init_state)
-        self.goal = goal
+    def __init__(self, length):
         self.n = length
+        state = self._sample_state()
+        goal = self._sample_state()
+
+        while np.array_equal(state, goal):
+            goal = self._sample_state()
+
+        self.state = np.copy(state)
+        self.goal = np.copy(goal)
+
+    def _sample_state(self):
+        """
+        Sample a sequence of bits with certain length
+        """
+        state = []
+        for i in range(self.n):
+            if (random.random() < 0.5):
+                state.append(1)
+            else:
+                state.append(0)
+
+        return np.asarray(state)
 
     def update_state(self, action):
         assert action < self.n, "Action is not allowed!"
         self.state[action] = 1 - self.state[action]
-        return self.state
+        return np.copy(self.state)
 
     def reward(self, state):
         if np.array_equal(state, self.goal):
             return 0
         else:
             return -1
+
+    def reset(self):
+        state = self._sample_state()
+        goal = self._sample_state()
+        while np.array_equal(state, goal):
+            goal = self._sample_state()
+        self.state = np.copy(state)
+        self.goal = np.copy(goal)
