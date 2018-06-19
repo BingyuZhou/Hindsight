@@ -82,7 +82,7 @@ class DQN:
         """
         p = random.random()
 
-        eps_current = max(0.05, 1 - 2e-3 * global_i)
+        eps_current = max(0.05, 1 - 9e-4 * global_i)
 
         if (p < eps_current):  # random action
             action = random.randint(0, self.n - 1)
@@ -112,7 +112,7 @@ class DQN:
             op.append(var.assign(decay_value))
         sess.run(op)
 
-    def train_Q(self, x, y, epoch, episode, iteration):
+    def train_Q(self, x, y, epoch, cycles, episode, iteration):
         """
         DQN algorithm for training Q network
         """
@@ -153,13 +153,13 @@ class DQN:
         # Optimizer
         global_step = tf.train.get_or_create_global_step()
         learning_rate = tf.train.exponential_decay(
-            learning_rate=0.001,
+            learning_rate=0.005,
             global_step=global_step,
-            decay_steps=500,
-            decay_rate=0.9,
+            decay_steps=2000,
+            decay_rate=0.98,
             staircase=True)
         tf.summary.scalar('learning_rate', learning_rate)
-        optimizer = tf.train.AdamOptimizer(learning_rate, )
+        optimizer = tf.train.AdamOptimizer(learning_rate, epsilon=0.01)
         train_step = optimizer.minimize(loss=loss, global_step=global_step)
 
         merge_tb = tf.summary.merge_all()
@@ -176,106 +176,112 @@ class DQN:
 
             self.update_target_model(sess)
             for e in range(epoch):
+                for cycle in range(cycles):
+                    success = 0
+                    for ep in range(episode):
 
-                success = 0
-                for ep in range(episode):
+                        # initialize a bitflipping env
 
-                    # initialize a bitflipping env
+                        env = bf(self.n)  # bitflipping env
 
-                    env = bf(self.n)  # bitflipping env
+                        # Sample training data set
+                        for t in range(self.n):
 
-                    # Sample training data set
-                    for t in range(self.n):
+                            s = np.copy(env.state)
+                            a = self.eps_greedy(global_i, s, env.goal, sess, x)
 
-                        s = np.copy(env.state)
-                        a = self.eps_greedy(global_i, s, env.goal, sess, x)
+                            s_next = env.update_state(a)
+                            r = env.reward(s_next)
 
-                        s_next = env.update_state(a)
-                        r = env.reward(s_next)
-
-                        # Put (s, g, a, s', r) into the replay buffer
-                        if (replay_buffer.shape[0] < self.replay_buffer_size):
-                            replay_buffer = np.append(
-                                replay_buffer,
-                                np.concatenate(
+                            # Put (s, g, a, s', r) into the replay buffer
+                            if (replay_buffer.shape[0] <
+                                    self.replay_buffer_size):
+                                replay_buffer = np.append(
+                                    replay_buffer,
+                                    np.concatenate(
+                                        (s.reshape(
+                                            (1, -1)), env.goal.reshape(
+                                                (1, -1)), np.array([[a]]),
+                                         s_next.reshape(
+                                             (1, -1)), np.array([[r]])),
+                                        axis=1),
+                                    axis=0)
+                            else:
+                                replay_buffer[rb_ind, :] = np.concatenate(
                                     (s.reshape(
                                         (1, -1)), env.goal.reshape((1, -1)),
                                      np.array([[a]]), s_next.reshape(
                                          (1, -1)), np.array([[r]])),
-                                    axis=1),
-                                axis=0)
+                                    axis=1)
+                                rb_ind = (rb_ind + 1) % self.replay_buffer_size
+
+                            if (r == 0):
+                                success += 1
+                                break
+
+                        global_i += 1
+                        success_rate_op = success_rate.assign(
+                            success / episode)
+                    # end of experience replay
+
+                    # One step optimization of Q neural network
+                    for t in range(iteration):
+                        # Sample random minibatches from the replay buffer to update Q-network
+                        # use half of replay buffer to do minibatch gradient descent
+                        if (replay_buffer.shape[0] > self.batch_size):
+                            mini_batch_index = np.random.choice(
+                                replay_buffer.shape[0],
+                                self.batch_size,
+                                replace=False)
                         else:
-                            replay_buffer[rb_ind, :] = np.concatenate(
-                                (s.reshape((1, -1)), env.goal.reshape((1, -1)),
-                                 np.array([[a]]), s_next.reshape(
-                                     (1, -1)), np.array([[r]])),
-                                axis=1)
-                            rb_ind = (rb_ind + 1) % self.replay_buffer_size
+                            mini_batch_index = np.random.choice(
+                                replay_buffer.shape[0],
+                                self.batch_size,
+                                replace=True)
 
-                        if (r == 0):
-                            success += 1
-                            break
+                        batch = replay_buffer[mini_batch_index]
 
-                    global_i += 1
-                    success_rate_op = success_rate.assign(success / episode)
-                # end of experience replay
+                        # print(batch)
 
-                # One step optimization of Q neural network
-                for t in range(iteration):
-                    # Sample random minibatches from the replay buffer to update Q-network
-                    # use half of replay buffer to do minibatch gradient descent
-                    if (replay_buffer.shape[0] > self.batch_size):
-                        mini_batch_index = np.random.choice(
-                            replay_buffer.shape[0],
-                            self.batch_size,
-                            replace=False)
-                    else:
-                        mini_batch_index = np.random.choice(
-                            replay_buffer.shape[0],
-                            self.batch_size,
-                            replace=True)
+                        # True Q values
+                        Q_true = np.zeros((self.batch_size, 1))
 
-                    batch = replay_buffer[mini_batch_index]
+                        for i in range(self.batch_size):
+                            reward = batch[i, -1]
+                            goal = batch[i, self.n:2 * self.n]
+                            next_state = batch[i, 2 * self.n + 1:3 * self.n +
+                                               1]
+                            # if next state is goal state
+                            if reward == 0:
+                                Q_true_i = reward
+                            else:
+                                V, _ = self.V_value(sess, next_state, goal, x)
+                                # Bellman equation
+                                Q_true_i = np.clip(
+                                    reward + self.discount * V,
+                                    -1.0 / (1.0 - self.discount), 0)
 
-                    # print(batch)
+                            Q_true[i] = Q_true_i
+                        # print(Q_true)
 
-                    # True Q values
-                    Q_true = np.zeros((self.batch_size, 1))
+                        # Update Q-network with the sampled batch data
 
-                    for i in range(self.batch_size):
-                        reward = batch[i, -1]
-                        goal = batch[i, self.n:2 * self.n]
-                        next_state = batch[i, 2 * self.n + 1:3 * self.n + 1]
-                        # if next state is goal state
-                        if reward == 0:
-                            Q_true_i = reward
-                        else:
-                            V, _ = self.V_value(sess, next_state, goal, x)
-                            # Bellman equation
-                            Q_true_i = np.clip(reward + self.discount * V,
-                                               -1.0 / (1.0 - self.discount), 0)
+                        input = batch[:, 0:2 * self.n]
+                        ls, _, _, summary = sess.run(
+                            [loss, train_step, success_rate_op, merge_tb],
+                            feed_dict={
+                                x: input,
+                                y: Q_true,
+                                action: batch[:, 2 * self.n]
+                            })
 
-                        Q_true[i] = Q_true_i
-                    # print(Q_true)
-
-                    # Update Q-network with the sampled batch data
-
-                    input = batch[:, 0:2 * self.n]
-                    ls, _, _, summary = sess.run(
-                        [loss, train_step, success_rate_op, merge_tb],
-                        feed_dict={
-                            x: input,
-                            y: Q_true,
-                            action: batch[:, 2 * self.n]
-                        })
-
-                    losses.append(ls)
-                    writer.add_summary(summary, global_step.eval())
-                # end of optimization
-                print('Epoch {0} Episode {1}: loss is {2:.3g}'.format(
-                    e, ep, ls))
-                # Update target model every certain steps
-                self.update_target_model(sess)
+                        losses.append(ls)
+                        writer.add_summary(summary, global_step.eval())
+                    # end of optimization
+                    print('Epoch {0} Cycle {1}: loss is {2:.3g}'.format(
+                        e, cycle, ls))
+                    # Update target model every certain steps
+                    self.update_target_model(sess)
 
             writer.close()
             saver = tf.train.Saver()
