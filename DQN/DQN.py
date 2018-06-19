@@ -31,10 +31,6 @@ class DQN:
         # Target NN used to compute targets for the sake of training stability
         self.targetModel = self.Q_NN(x, hid, False, "targetmodel")
 
-    def huber_loss(x, delta=1.0):
-        return tf.where(
-            tf.abs(x) < delta, 0.5 * tf.square(x), delta * (tf.abs(x) - 0.5))
-
     def Q_NN(self, x, hidden_layer, is_training, scope):
         """
         Build up the model of Q-NN
@@ -51,7 +47,7 @@ class DQN:
                 h = tf.layers.dense(
                     input,
                     hid,
-                    activation=None,
+                    activation=tf.nn.relu,
                     kernel_initializer=init,
                     bias_initializer=tf.zeros_initializer(),
                     trainable=is_training)
@@ -86,7 +82,7 @@ class DQN:
         """
         p = random.random()
 
-        eps_current = max(0.05, 1 - 4e-4 * global_i)
+        eps_current = max(0.05, 1 - 2e-3 * global_i)
 
         if (p < eps_current):  # random action
             action = random.randint(0, self.n - 1)
@@ -94,19 +90,6 @@ class DQN:
         else:  # greedy policy
             _, action_opt = self.V_value(sess, state, goal, x)
             return action_opt
-
-    def _sample_state(self):
-        """
-        Sample a sequence of bits with certain length
-        """
-        state = []
-        for i in range(self.n):
-            if (random.random() < 0.5):
-                state.append(1)
-            else:
-                state.append(0)
-
-        return np.asarray(state)
 
     def update_target_model(self, sess):
         """
@@ -123,6 +106,7 @@ class DQN:
         #     decay_value = (
         #         1.0 - self.tau) * var_list[i] + self.tau * var_list[i + n // 2]
         #     op.append(var_list[i + n // 2].assign(decay_value))
+
         for i, var in enumerate(target_var_list):
             decay_value = (1.0 - self.tau) * model_var_list[i] + self.tau * var
             op.append(var.assign(decay_value))
@@ -138,6 +122,7 @@ class DQN:
         a_onehot = tf.one_hot(action, self.n)
 
         replay_buffer = np.array([]).reshape((-1, self.n * 3 + 2))
+        rb_ind = 0
 
         # Loss
         Q_pred = tf.reduce_sum(self.model * a_onehot, axis=1)
@@ -152,16 +137,16 @@ class DQN:
         #     1)
         # loss = tf.losses.mean_squared_error(
         #     0, loss, reduction=tf.losses.Reduction.MEAN)
-        loss_tb = tf.summary.scalar('loss', loss)
+        tf.summary.scalar('loss', loss)
 
         W1 = tf.trainable_variables('model/dense/kernel:0')
         W1_target = tf.global_variables('targetmodel/dense/kernel:0')
-        W1_tb = tf.summary.histogram('W1', W1[0])
-        W1_target_tb = tf.summary.histogram('W2', W1_target[0])
+        tf.summary.histogram('W1', W1[0])
+        tf.summary.histogram('W2', W1_target[0])
 
         success_rate = tf.Variable(
             initial_value=0.0, name='success_rate', trainable=False)
-        success_tb = tf.summary.scalar('success_rate', success_rate)
+        tf.summary.scalar('success_rate', success_rate)
 
         merge_tb = tf.summary.merge_all()
 
@@ -171,7 +156,7 @@ class DQN:
             learning_rate=0.001,
             global_step=global_step,
             decay_steps=500,
-            decay_rate=0.95,
+            decay_rate=0.9,
             staircase=True)
         tf.summary.scalar('learning_rate', learning_rate)
         optimizer = tf.train.AdamOptimizer(learning_rate, )
@@ -196,20 +181,14 @@ class DQN:
                 for ep in range(episode):
 
                     # initialize a bitflipping env
-                    s = self._sample_state()  # initialize state
-                    goal = self._sample_state()  # goal
-                    while np.array_equal(s, goal):
-                        goal = self._sample_state()
 
-                    env = bf(s, goal, self.n)  # bitflipping env
+                    env = bf(self.n)  # bitflipping env
 
                     # Sample training data set
                     for t in range(self.n):
-                        if np.array_equal(s, goal):
-                            success += 1
-                            break
 
-                        a = self.eps_greedy(global_i, s, goal, sess, x)
+                        s = np.copy(env.state)
+                        a = self.eps_greedy(global_i, s, env.goal, sess, x)
 
                         s_next = env.update_state(a)
                         r = env.reward(s_next)
@@ -219,20 +198,24 @@ class DQN:
                             replay_buffer = np.append(
                                 replay_buffer,
                                 np.concatenate(
-                                    (s.reshape((1, -1)), goal.reshape((1, -1)),
+                                    (s.reshape(
+                                        (1, -1)), env.goal.reshape((1, -1)),
                                      np.array([[a]]), s_next.reshape(
                                          (1, -1)), np.array([[r]])),
                                     axis=1),
                                 axis=0)
                         else:
                             replay_buffer[rb_ind, :] = np.concatenate(
-                                (s.reshape((1, -1)), goal.reshape((1, -1)),
+                                (s.reshape((1, -1)), env.goal.reshape((1, -1)),
                                  np.array([[a]]), s_next.reshape(
                                      (1, -1)), np.array([[r]])),
                                 axis=1)
                             rb_ind = (rb_ind + 1) % self.replay_buffer_size
 
-                        s = np.copy(s_next)
+                        if (r == 0):
+                            success += 1
+                            break
+
                     global_i += 1
                     success_rate_op = success_rate.assign(success / episode)
                 # end of experience replay
@@ -260,16 +243,20 @@ class DQN:
                     Q_true = np.zeros((self.batch_size, 1))
 
                     for i in range(self.batch_size):
+                        reward = batch[i, -1]
+                        goal = batch[i, self.n:2 * self.n]
                         next_state = batch[i, 2 * self.n + 1:3 * self.n + 1]
                         # if next state is goal state
-                        if np.array_equal(next_state, goal):
-                            Q_true_i = batch[i, -1]
+                        if reward == 0:
+                            Q_true_i = reward
                         else:
                             V, _ = self.V_value(sess, next_state, goal, x)
                             # Bellman equation
-                            Q_true_i = batch[i, -1] + self.discount * V,
+                            Q_true_i = np.clip(reward + self.discount * V,
+                                               -1.0 / (1.0 - self.discount), 0)
 
                         Q_true[i] = Q_true_i
+                    # print(Q_true)
 
                     # Update Q-network with the sampled batch data
 
