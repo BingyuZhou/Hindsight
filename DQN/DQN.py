@@ -45,7 +45,7 @@ class DQN:
                 h = tf.layers.dense(
                     input,
                     hid,
-                    activation=None,
+                    activation=tf.nn.relu,
                     kernel_initializer=init,
                     bias_initializer=tf.zeros_initializer(),
                     trainable=is_training)
@@ -70,7 +70,7 @@ class DQN:
         Q_target_nn = sess.run(self.targetModel, feed_dict={x: X})
 
         action_opt = np.argmax(Q_target_nn)
-        Q_max = Q_target_nn[:, action_opt]
+        Q_max = Q_target_nn[0, action_opt]
 
         return Q_max, action_opt
 
@@ -153,7 +153,7 @@ class DQN:
         learning_rate = tf.train.exponential_decay(
             learning_rate=0.001,
             global_step=global_step,
-            decay_steps=500,
+            decay_steps=5000,
             decay_rate=0.98,
             staircase=True)
         tf.summary.scalar('learning_rate', learning_rate)
@@ -236,7 +236,7 @@ class DQN:
                                 self.batch_size,
                                 replace=True)
 
-                        batch = replay_buffer[mini_batch_index]
+                        batch = np.copy(replay_buffer[mini_batch_index])
 
                         # print(batch)
 
@@ -278,8 +278,7 @@ class DQN:
                     print('Epoch {0} Cycle {1}: loss is {2:.3g}'.format(
                         e, cycle, ls))
                     # Update target model every certain steps
-                    if (cycle % 2 == 0):
-                        self.update_target_model(sess)
+                    self.update_target_model(sess)
 
             writer.close()
             saver = tf.train.Saver()
