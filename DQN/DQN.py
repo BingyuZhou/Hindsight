@@ -49,7 +49,7 @@ class DQN:
                 h = tf.layers.dense(
                     input,
                     hid,
-                    activation=None,
+                    activation=tf.nn.relu,
                     kernel_initializer=init,
                     bias_initializer=tf.zeros_initializer(),
                     trainable=is_training)
@@ -84,8 +84,7 @@ class DQN:
         """
         p = random.random()
 
-        eps_current = self.eps_0 + min(global_i / self.eps_timesteps,
-                                       1.0) * (self.eps_t - self.eps_0)
+        eps_current = max(0.05, 1 - 9e-4 * global_i)
 
         if (p < eps_current):  # random action
             action = random.randint(0, self.n - 1)
@@ -109,13 +108,13 @@ class DQN:
         #     decay_value = (
         #         1.0 - self.tau) * var_list[i] + self.tau * var_list[i + n // 2]
         #     op.append(var_list[i + n // 2].assign(decay_value))
+
         for i, var in enumerate(target_var_list):
             decay_value = (1.0 - self.tau) * model_var_list[i] + self.tau * var
             op.append(var.assign(decay_value))
         sess.run(op)
 
-    def train_Q(self, x, y, timesteps, iteration, learning_start,
-                learning_freq, update_freq):
+    def train_Q(self, x, y, epoch, cycles, episode, iteration):
         """
         DQN algorithm for training Q network
         """
@@ -156,13 +155,13 @@ class DQN:
         # Optimizer
         global_step = tf.train.get_or_create_global_step()
         learning_rate = tf.train.exponential_decay(
-            learning_rate=0.001,
+            learning_rate=0.005,
             global_step=global_step,
-            decay_steps=1500,
+            decay_steps=2000,
             decay_rate=0.98,
             staircase=True)
         tf.summary.scalar('learning_rate', learning_rate)
-        optimizer = tf.train.AdamOptimizer(learning_rate)
+        optimizer = tf.train.AdamOptimizer(learning_rate, epsilon=0.01)
         train_step = optimizer.minimize(loss=loss, global_step=global_step)
 
         merge_tb = tf.summary.merge_all()
@@ -177,46 +176,57 @@ class DQN:
             success = 0
 
             self.update_target_model(sess)
+            for e in range(epoch):
+                for cycle in range(cycles):
+                    success = 0
+                    for ep in range(episode):
 
-            # initialize a bitflipping env
-            env = bf(self.n)
-            for t in range(timesteps):
-                s = np.copy(env.state)
-                a = self.eps_greedy(t, env.state, env.goal, sess, x)
+                        # initialize a bitflipping env
 
-                s_next = np.copy(env.update_state(a))
-                r = env.reward(s_next)
+                        env = bf(self.n)  # bitflipping env
 
-                # Put (s, g, a, s', r) into the replay buffer
-                if (replay_buffer.shape[0] < self.replay_buffer_size):
-                    replay_buffer = np.append(
-                        replay_buffer,
-                        np.concatenate(
-                            (s.reshape((1, -1)), env.goal.reshape((1, -1)),
-                             np.array([[a]]), s_next.reshape(
-                                 (1, -1)), np.array([[r]])),
-                            axis=1),
-                        axis=0)
-                else:
-                    replay_buffer[rb_ind, :] = np.concatenate(
-                        (s.reshape((1, -1)), env.goal.reshape(
-                            (1, -1)), np.array([[a]]), s_next.reshape(
-                                (1, -1)), np.array([[r]])),
-                        axis=1)
-                    rb_ind = (rb_ind + 1) % self.replay_buffer_size
+                        # Sample training data set
+                        for t in range(self.n):
 
-                # If game is ended, start a new one
-                if (r == 0):
-                    success += 1
-                    env.reset()
+                            s = np.copy(env.state)
+                            a = self.eps_greedy(global_i, s, env.goal, sess, x)
 
-                success_rate_op = success_rate.assign(success / timesteps)
-                # end of experience replay
+                            s_next = env.update_state(a)
+                            r = env.reward(s_next)
 
-                if (t > learning_start
-                        and (t - learning_start) % learning_freq == 0):
+                            # Put (s, g, a, s', r) into the replay buffer
+                            if (replay_buffer.shape[0] <
+                                    self.replay_buffer_size):
+                                replay_buffer = np.append(
+                                    replay_buffer,
+                                    np.concatenate(
+                                        (s.reshape(
+                                            (1, -1)), env.goal.reshape(
+                                                (1, -1)), np.array([[a]]),
+                                         s_next.reshape(
+                                             (1, -1)), np.array([[r]])),
+                                        axis=1),
+                                    axis=0)
+                            else:
+                                replay_buffer[rb_ind, :] = np.concatenate(
+                                    (s.reshape(
+                                        (1, -1)), env.goal.reshape((1, -1)),
+                                     np.array([[a]]), s_next.reshape(
+                                         (1, -1)), np.array([[r]])),
+                                    axis=1)
+                                rb_ind = (rb_ind + 1) % self.replay_buffer_size
+
+                            if (r == 0):
+                                success += 1
+                                break
+
+                        global_i += 1
+                        success_rate_op = success_rate.assign(
+                            success / episode)
+                    # end of experience replay
+
                     # One step optimization of Q neural network
-                    for it in range(iteration):
+                    for t in range(iteration):
                         # Sample random minibatches from the replay buffer to update Q-network
                         # use half of replay buffer to do minibatch gradient descent
                         if (replay_buffer.shape[0] > self.batch_size):
@@ -239,17 +249,17 @@ class DQN:
 
                         for i in range(self.batch_size):
                             reward = batch[i, -1]
+                            goal = batch[i, self.n:2 * self.n]
                             next_state = batch[i, 2 * self.n + 1:3 * self.n +
                                                1]
-                            goal = batch[i, self.n:self.n * 2]
                             # if next state is goal state
-                            if (reward == 0):
-                                Q_true_i = batch[i, -1]
+                            if reward == 0:
+                                Q_true_i = reward
                             else:
                                 V, _ = self.V_value(sess, next_state, goal, x)
                                 # Bellman equation
                                 Q_true_i = np.clip(
-                                    batch[i, -1] + self.discount * V,
+                                    reward + self.discount * V,
                                     -1.0 / (1.0 - self.discount), 0)
 
                             Q_true[i] = Q_true_i
@@ -269,11 +279,9 @@ class DQN:
                         losses.append(ls)
                         writer.add_summary(summary, global_step.eval())
                     # end of optimization
-                    print('Timestep {0}: loss is {1:.3g}'.format(t, ls))
-
-                # Update target model every certain steps
-                if (t > learning_start
-                        and (t - learning_start) % update_freq == 0):
+                    print('Epoch {0} Cycle {1}: loss is {2:.3g}'.format(
+                        e, cycle, ls))
+                    # Update target model every certain steps
                     self.update_target_model(sess)
 
             writer.close()
