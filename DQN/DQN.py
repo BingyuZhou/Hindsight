@@ -15,15 +15,11 @@ class DQN:
                  hid,
                  n,
                  discount=0.98,
-                 eps_0=1,
-                 eps_t=0.1,
-                 eps_timesteps=500,
+                 eps=1,
                  tau=0.95,
                  replay_buffer_size=1000,
-                 batch_size=124):
-        self.eps_0 = eps_0  # epsilon-greedy start value
-        self.eps_t = eps_t  # epsilon-greedy end value
-        self.eps_timesteps = eps_timesteps  # epsilon-greedy fraction of timestep over all timesteps
+                 batch_size=128):
+        self.eps = eps  # epsilon-greedy start value
         self.replay_buffer_size = replay_buffer_size  # replay buffer size
         self.batch_size = batch_size
         self.n = n  # action space
@@ -49,7 +45,7 @@ class DQN:
                 h = tf.layers.dense(
                     input,
                     hid,
-                    activation=tf.nn.relu,
+                    activation=None,
                     kernel_initializer=init,
                     bias_initializer=tf.zeros_initializer(),
                     trainable=is_training)
@@ -84,7 +80,7 @@ class DQN:
         """
         p = random.random()
 
-        eps_current = max(0.05, 1 - 9e-4 * global_i)
+        eps_current = max(0.05, 1 - 2e-3 * global_i)
 
         if (p < eps_current):  # random action
             action = random.randint(0, self.n - 1)
@@ -155,17 +151,17 @@ class DQN:
         # Optimizer
         global_step = tf.train.get_or_create_global_step()
         learning_rate = tf.train.exponential_decay(
-            learning_rate=0.005,
+            learning_rate=0.001,
             global_step=global_step,
-            decay_steps=2000,
+            decay_steps=500,
             decay_rate=0.98,
             staircase=True)
         tf.summary.scalar('learning_rate', learning_rate)
-        optimizer = tf.train.AdamOptimizer(learning_rate, epsilon=0.01)
+        optimizer = tf.train.AdamOptimizer(learning_rate)
         train_step = optimizer.minimize(loss=loss, global_step=global_step)
 
         merge_tb = tf.summary.merge_all()
-
+        global_i = 0
         with tf.Session() as sess:
             writer = tf.summary.FileWriter('./summary/',
                                            sess.graph)  # tensorboard
@@ -282,7 +278,8 @@ class DQN:
                     print('Epoch {0} Cycle {1}: loss is {2:.3g}'.format(
                         e, cycle, ls))
                     # Update target model every certain steps
-                    self.update_target_model(sess)
+                    if (cycle % 2 == 0):
+                        self.update_target_model(sess)
 
             writer.close()
             saver = tf.train.Saver()
