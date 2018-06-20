@@ -80,7 +80,7 @@ class DQN:
         """
         p = random.random()
 
-        eps_current = max(0.05, 1 - 9e-4 * global_i)
+        eps_current = max(0.2, 1 - 9e-4 * global_i)
 
         if (p < eps_current):  # random action
             action = random.randint(0, self.n - 1)
@@ -150,14 +150,14 @@ class DQN:
 
         # Optimizer
         global_step = tf.train.get_or_create_global_step()
-        learning_rate = tf.train.exponential_decay(
-            learning_rate=0.001,
-            global_step=global_step,
-            decay_steps=5000,
-            decay_rate=0.98,
-            staircase=True)
-        tf.summary.scalar('learning_rate', learning_rate)
-        optimizer = tf.train.AdamOptimizer(learning_rate)
+        # learning_rate = tf.train.exponential_decay(
+        #     learning_rate=0.001,
+        #     global_step=global_step,
+        #     decay_steps=5000,
+        #     decay_rate=0.98,
+        #     staircase=True)
+        # tf.summary.scalar('learning_rate', learning_rate)
+        optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
         train_step = optimizer.minimize(loss=loss, global_step=global_step)
 
         merge_tb = tf.summary.merge_all()
