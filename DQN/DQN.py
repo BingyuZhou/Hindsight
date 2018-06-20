@@ -80,7 +80,7 @@ class DQN:
         """
         p = random.random()
 
-        eps_current = max(0.05, 1 - 2e-3 * global_i)
+        eps_current = max(0.05, 1 - 9e-4 * global_i)
 
         if (p < eps_current):  # random action
             action = random.randint(0, self.n - 1)
@@ -278,7 +278,8 @@ class DQN:
                     print('Epoch {0} Cycle {1}: loss is {2:.3g}'.format(
                         e, cycle, ls))
                     # Update target model every certain steps
-                    self.update_target_model(sess)
+                    if (cycle % 1 == 0):
+                        self.update_target_model(sess)
 
             writer.close()
             saver = tf.train.Saver()
