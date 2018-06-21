@@ -80,14 +80,14 @@ class DQN:
         """
         p = random.random()
 
-        eps_current = max(0.2, 1 - 9e-4 * global_i)
+        eps_current = max(0.02, self.eps - 4e-4 * global_i)
 
         if (p < eps_current):  # random action
             action = random.randint(0, self.n - 1)
-            return action
+            return action, eps_current
         else:  # greedy policy
             _, action_opt = self.V_value(sess, state, goal, x)
-            return action_opt
+            return action_opt, eps_current
 
     def update_target_model(self, sess):
         """
@@ -97,13 +97,8 @@ class DQN:
             tf.GraphKeys.TRAINABLE_VARIABLES, scope="model")
         target_var_list = tf.get_collection(
             tf.GraphKeys.GLOBAL_VARIABLES, scope="targetmodel")
-        # n = len(var_list)
+
         op = []  # operation to transfer weights and bias
-        # for i in range(n // 2):
-        #     # decay coefficients
-        #     decay_value = (
-        #         1.0 - self.tau) * var_list[i] + self.tau * var_list[i + n // 2]
-        #     op.append(var_list[i + n // 2].assign(decay_value))
 
         for i, var in enumerate(target_var_list):
             decay_value = (1.0 - self.tau) * model_var_list[i] + self.tau * var
@@ -130,11 +125,7 @@ class DQN:
         #     y,
         #     tf.reduce_sum(tf.multiply(self.model, a_onehot), axis=1),
         #     reduction=tf.losses.Reduction.MEAN)
-        # loss = tf.clip_by_value(
-        #     (y - tf.reduce_sum(tf.multiply(self.model, a_onehot), axis=1)), -1,
-        #     1)
-        # loss = tf.losses.mean_squared_error(
-        #     0, loss, reduction=tf.losses.Reduction.MEAN)
+
         tf.summary.scalar('loss', loss)
 
         W1 = tf.trainable_variables('model/dense/kernel:0')
@@ -145,6 +136,9 @@ class DQN:
         success_rate = tf.Variable(
             initial_value=0.0, name='success_rate', trainable=False)
         tf.summary.scalar('success_rate', success_rate)
+
+        eps = tf.Variable(initial_value=self.eps, name="eps", trainable=False)
+        tf.summary.scalar('eps', eps)
 
         merge_tb = tf.summary.merge_all()
 
@@ -185,8 +179,9 @@ class DQN:
                         for t in range(self.n):
 
                             s = np.copy(env.state)
-                            a = self.eps_greedy(global_i, s, env.goal, sess, x)
-
+                            a, eps_current = self.eps_greedy(
+                                global_i, s, env.goal, sess, x)
+                            eps_opt = eps.assign(eps_current)
                             s_next = env.update_state(a)
                             r = env.reward(s_next)
 
@@ -219,6 +214,8 @@ class DQN:
                         global_i += 1
                         success_rate_op = success_rate.assign(
                             success / episode)
+
+                        variable_opt = [eps_opt, success_rate_op]
                     # end of experience replay
 
                     # One step optimization of Q neural network
@@ -265,7 +262,7 @@ class DQN:
 
                         input = batch[:, 0:2 * self.n]
                         ls, _, _, summary = sess.run(
-                            [loss, train_step, success_rate_op, merge_tb],
+                            [loss, train_step, variable_opt, merge_tb],
                             feed_dict={
                                 x: input,
                                 y: Q_true,
