@@ -3,6 +3,8 @@ import random
 import numpy as np
 
 from bitflipping import bitflipping as bf
+from ReplayBuffer import ReplayBuffer as rb
+from her import her
 
 
 class DQN:
@@ -20,7 +22,7 @@ class DQN:
                  replay_buffer_size=1000,
                  batch_size=128):
         self.eps = eps  # epsilon-greedy start value
-        self.replay_buffer_size = replay_buffer_size  # replay buffer size
+        # self.replay_buffer_size = replay_buffer_size  # replay buffer size
         self.batch_size = batch_size
         self.n = n  # action space
         self.discount = discount
@@ -28,6 +30,7 @@ class DQN:
         self.model = self.Q_NN(x, hid, True, "model")
         # Target NN used to compute targets for the sake of training stability
         self.targetModel = self.Q_NN(x, hid, False, "targetmodel")
+        self.replaybuffer = rb(replay_buffer_size, n)
 
     def Q_NN(self, x, hidden_layer, is_training, scope):
         """
@@ -76,7 +79,7 @@ class DQN:
         """
         p = random.random()
 
-        eps_current = max(0.1, self.eps - 4e-4 * global_i)
+        eps_current = max(0.2, self.eps - 8e-4 * global_i)
 
         if (p < eps_current):  # random action
             action = random.randint(0, self.n - 1)
@@ -110,9 +113,6 @@ class DQN:
 
         a_onehot = tf.one_hot(action, self.n)
 
-        replay_buffer = np.array([]).reshape((-1, self.n * 3 + 2))
-        rb_ind = 0
-
         # Loss
         Q_pred = tf.reduce_sum(self.model * a_onehot, axis=1)
         errors = tf.losses.huber_loss(y, Q_pred)
@@ -140,14 +140,14 @@ class DQN:
 
         # Optimizer
         global_step = tf.train.get_or_create_global_step()
-        # learning_rate = tf.train.exponential_decay(
-        #     learning_rate=0.001,
-        #     global_step=global_step,
-        #     decay_steps=5000,
-        #     decay_rate=0.98,
-        #     staircase=True)
-        # tf.summary.scalar('learning_rate', learning_rate)
-        optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
+        learning_rate = tf.train.exponential_decay(
+            learning_rate=0.001,
+            global_step=global_step,
+            decay_steps=800,
+            decay_rate=0.98,
+            staircase=True)
+        tf.summary.scalar('learning_rate', learning_rate)
+        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
         train_step = optimizer.minimize(loss=loss, global_step=global_step)
 
         merge_tb = tf.summary.merge_all()
@@ -182,30 +182,15 @@ class DQN:
                             r = env.reward(s_next)
 
                             # Put (s, g, a, s', r) into the replay buffer
-                            if (replay_buffer.shape[0] <
-                                    self.replay_buffer_size):
-                                replay_buffer = np.append(
-                                    replay_buffer,
-                                    np.concatenate(
-                                        (s.reshape(
-                                            (1, -1)), env.goal.reshape(
-                                                (1, -1)), np.array([[a]]),
-                                         s_next.reshape(
-                                             (1, -1)), np.array([[r]])),
-                                        axis=1),
-                                    axis=0)
-                            else:
-                                replay_buffer[rb_ind, :] = np.concatenate(
-                                    (s.reshape(
-                                        (1, -1)), env.goal.reshape((1, -1)),
-                                     np.array([[a]]), s_next.reshape(
-                                         (1, -1)), np.array([[r]])),
-                                    axis=1)
-                                rb_ind = (rb_ind + 1) % self.replay_buffer_size
+                            self.replaybuffer.add(s, env.goal, a, s_next, r)
 
                             if (r == 0):
                                 success += 1
                                 break
+
+                        # Hindsight experience replay
+                        self.replaybuffer = her(self.replaybuffer, 'future',
+                                                self.n, env.reward)
 
                         global_i += 1
                         success_rate_op = success_rate.assign(
@@ -217,19 +202,7 @@ class DQN:
                     # One step optimization of Q neural network
                     for t in range(iteration):
                         # Sample random minibatches from the replay buffer to update Q-network
-                        # use half of replay buffer to do minibatch gradient descent
-                        if (replay_buffer.shape[0] > self.batch_size):
-                            mini_batch_index = np.random.choice(
-                                replay_buffer.shape[0],
-                                self.batch_size,
-                                replace=False)
-                        else:
-                            mini_batch_index = np.random.choice(
-                                replay_buffer.shape[0],
-                                self.batch_size,
-                                replace=True)
-
-                        batch = np.copy(replay_buffer[mini_batch_index])
+                        batch = self.replaybuffer.sample(self.batch_size)
 
                         # print(batch)
 

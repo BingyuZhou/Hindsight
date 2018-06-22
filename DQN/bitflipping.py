@@ -45,11 +45,17 @@ class bitflipping:
         self.state[action] = 1 - self.state[action]
         return np.copy(self.state)
 
-    def reward(self, state):
-        if np.array_equal(state, self.goal):
-            return 0
+    def reward(self, state, goal=None):
+        if goal is None:
+            if np.array_equal(state, self.goal):
+                return 0
+            else:
+                return -1
         else:
-            return -1
+            if np.array_equal(state, goal):
+                return 0
+            else:
+                return -1
 
     def reset(self):
         state = self._sample_state()
