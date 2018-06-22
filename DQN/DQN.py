@@ -47,14 +47,10 @@ class DQN:
                     hid,
                     activation=tf.nn.relu,
                     kernel_initializer=init,
-                    bias_initializer=tf.zeros_initializer(),
                     trainable=is_training)
                 input = h
             Q_pred = tf.layers.dense(
-                h,
-                self.n,
-                kernel_initializer=init,
-                bias_initializer=tf.zeros_initializer(),
+                h, self.n, kernel_initializer=init,
                 trainable=is_training)  # output layer
 
         return Q_pred
@@ -80,7 +76,7 @@ class DQN:
         """
         p = random.random()
 
-        eps_current = max(0.02, self.eps - 4e-4 * global_i)
+        eps_current = max(0.1, self.eps - 4e-4 * global_i)
 
         if (p < eps_current):  # random action
             action = random.randint(0, self.n - 1)
@@ -272,8 +268,9 @@ class DQN:
                         losses.append(ls)
                         writer.add_summary(summary, global_step.eval())
                     # end of optimization
-                    print('Epoch {0} Cycle {1}: loss is {2:.3g}'.format(
-                        e, cycle, ls))
+                    print(
+                        'Epoch {0} Cycle {1}: loss is {2:.3g}, success rate {3:3g}'.
+                        format(e, cycle, ls, success / episode))
                     # Update target model every certain steps
                     if (cycle % 1 == 0):
                         self.update_target_model(sess)
