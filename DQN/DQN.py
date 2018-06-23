@@ -114,13 +114,13 @@ class DQN:
         a_onehot = tf.one_hot(action, self.n)
 
         # Loss
-        Q_pred = tf.reduce_sum(self.model * a_onehot, axis=1)
-        errors = tf.losses.huber_loss(y, Q_pred)
-        loss = tf.reduce_mean(errors)
-        # loss = tf.losses.mean_squared_error(
-        #     y,
-        #     tf.reduce_sum(tf.multiply(self.model, a_onehot), axis=1),
-        #     reduction=tf.losses.Reduction.MEAN)
+        # Q_pred = tf.reduce_sum(self.model * a_onehot, axis=1)
+        # errors = tf.losses.huber_loss(y, Q_pred)
+        # loss = tf.reduce_mean(errors)
+        loss = tf.losses.mean_squared_error(
+            y,
+            tf.reduce_sum(tf.multiply(self.model, a_onehot), axis=1),
+            reduction=tf.losses.Reduction.MEAN)
 
         tf.summary.scalar('loss', loss)
 
@@ -141,10 +141,10 @@ class DQN:
         # Optimizer
         global_step = tf.train.get_or_create_global_step()
         learning_rate = tf.train.exponential_decay(
-            learning_rate=0.001,
+            learning_rate=0.003,
             global_step=global_step,
-            decay_steps=800,
-            decay_rate=0.98,
+            decay_steps=300,
+            decay_rate=0.95,
             staircase=True)
         tf.summary.scalar('learning_rate', learning_rate)
         optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
@@ -245,8 +245,7 @@ class DQN:
                         'Epoch {0} Cycle {1}: loss is {2:.3g}, success rate {3:3g}'.
                         format(e, cycle, ls, success / episode))
                     # Update target model every certain steps
-                    if (cycle % 1 == 0):
-                        self.update_target_model(sess)
+                    self.update_target_model(sess)
 
             writer.close()
             saver = tf.train.Saver()

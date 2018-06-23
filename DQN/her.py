@@ -42,7 +42,7 @@ def her(buffer, method, n, reward_fun):
             selected_ind = her_ind - 1 - np.array(selected_rows)
             selected_ind = selected_ind.astype(np.float)
 
-            selected_ind[selected_ind < 0] += buffer.replay_buffer_size
+            selected_ind[selected_ind < -0.1] += buffer.replay_buffer_size
 
             her_goals = buffer.buffer[selected_ind.astype(int), 2 * n +
                                       1:3 * n + 1]
