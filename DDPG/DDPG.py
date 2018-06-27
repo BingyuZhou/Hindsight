@@ -46,9 +46,27 @@ class DDPG():
     def _critic_opt(self):
         self.critic_opt = tf.train.AdamOptimizer(learning_rate=self.lr_critic)
 
-    def train(self):
+    def train(self, sess, global_step):
         """ One step optimization of the Actor
         and Critic network"""
+        batch = self.replaybuffer.sample(self.batch_size)
+
+        # target Q value for critic (y in the paper)
+        target_Q = self.rewards+self.discount * \
+            (1.0-self.terminal) * \
+            self.target_critic(self.s_1, self.target_actor(self.s_1))
+
+        var_list_critic = tf.trainable_variables(scope='critic')
+        var_list_actor = tf.trainable_variables(scope='actor')
+        critic_train_op = self.critic_opt.minimize(
+            loss=self.critic_loss, global_step=global_step, var_list=var_list_critic)
+        actor_train_op = self.actor_opt.minimize(
+            self.actor_loss, global_step=global_step, var_list=var_list_actor)
+
+        critic_loss, actor_loss = sess.run([critic_train_op, actor_train_op], feed_dict={
+            self.s_0: batch['s0'], self.actions: batch['a'], self.critic_target: target_Q})
+
+        return critic_loss, actor_loss
 
     def update_target_nn(self):
         """Update the target networks to slowly track the current
