@@ -4,10 +4,11 @@ Deep Deterministic Policy Gradient
 import tensorflow as tf
 import numpy as np
 from copy import copy
+import random
 
 
 class DDPG():
-    def __init__(self, actor, critic, replaybuffer, params, state_shape, action_shape):
+    def __init__(self, sess, actor, critic, replaybuffer, params, state_shape, action_shape, action_range):
         self.s_0 = tf.placeholder(tf.float32, (None, state_shape), 's_0')
         self.s_1 = tf.placeholder(tf.float32, (None, state_shape), 's_1')
         self.actions = tf.placeholder(
@@ -30,6 +31,9 @@ class DDPG():
         self.batch_size = params['batch_size']
         self.lr_actor = params['lr_actor']
         self.lr_critic = params['lr_critic']
+        self.eps = params['eps']
+        self.action_range = action_range
+        self.sess = sess
 
     def _actor_loss(self, critic_with_actor):
         """ L = -E[Q(s, pi(s))]"""
@@ -46,7 +50,7 @@ class DDPG():
     def _critic_opt(self):
         self.critic_opt = tf.train.AdamOptimizer(learning_rate=self.lr_critic)
 
-    def train(self, sess, global_step):
+    def train(self, global_step):
         """ One step optimization of the Actor
         and Critic network"""
         batch = self.replaybuffer.sample(self.batch_size)
@@ -63,19 +67,52 @@ class DDPG():
         actor_train_op = self.actor_opt.minimize(
             self.actor_loss, global_step=global_step, var_list=var_list_actor)
 
-        critic_loss, actor_loss = sess.run([critic_train_op, actor_train_op], feed_dict={
+        critic_loss, actor_loss = self.sess.run([critic_train_op, actor_train_op], feed_dict={
             self.s_0: batch['s0'], self.actions: batch['a'], self.critic_target: target_Q})
 
         return critic_loss, actor_loss
 
-    def update_target_nn(self):
+    def update_target_nn(self, vars, vars_target):
         """Update the target networks to slowly track the current
         optimized Actor and Critic respectively
         """
+        tf.logging.info('---Start updating target nets---')
+        update_target_op = []
+        assert len(vars) == len(vars_target)
+        for var, var_target in zip(vars, vars_target):
+            tf.logging.info('{} -> {}'.format(var.name, var_target.name))
+            update_target_op.append(
+                tf.assign(var_target, (1.0-self.decay)*var+self.decay*var))
 
-    def pi(self, state, compute_V=False):
+        self.sess.run(update_target_op)
+
+    def eps_policy(self, state):
+        """ Epsilon-greedy policy"""
+        if (random.random() < self.eps):
+            action = random.randint(self.action_range[0], self.action_range[1])
+        else:
+            action = self.sess.run(self.actor_A, feed_dict={self.s_0: state})
+        return action
+
+    def pi(self, state, eps_greedy=False, compute_V=False):
         """ a = actor(state)
         Compute the optimal action from Actor network,
         it is also able to compute the Value of state from
         Critic netwoek
         """
+        if eps_greedy:
+            action = self.eps_policy(state)
+            if compute_V:
+                Q = self.sess.run(self.critic, feed_dict={
+                                  self.s_0: state, self.actions: action})
+            else:
+                Q = None
+        else:
+            if compute_V:
+                action, Q = self.sess.run([self.actor_A, self.critic(
+                    self.s_0, self.actor_A)], feed_dict={self.s_0: state})
+            else:
+                action = self.sess.run(
+                    self.actor_A, feed_dict={self.s_0: state})
+                Q = None
+        return action, Q
