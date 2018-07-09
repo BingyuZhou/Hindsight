@@ -8,14 +8,15 @@ import random
 
 
 class DDPG():
-    def __init__(self, sess, actor, critic, replaybuffer, params, state_shape, action_shape, action_range):
+    def __init__(self, actor, critic, replaybuffer, params, state_shape,
+                 action_shape, action_range):
         self.s_0 = tf.placeholder(tf.float32, (None, state_shape), 's_0')
         self.s_1 = tf.placeholder(tf.float32, (None, state_shape), 's_1')
-        self.actions = tf.placeholder(
-            tf.float32, (None, action_shape), 'actions')
+        self.actions = tf.placeholder(tf.float32, (None, action_shape),
+                                      'actions')
         self.rewards = tf.placeholder(tf.float32, (None, 1), 'rewards')
-        self.critic_target = tf.placeholder(
-            tf.float32, (None, 1), 'critic_target')
+        self.critic_target = tf.placeholder(tf.float32, (None, 1),
+                                            'critic_target')
         self.terminal = tf.placeholder(tf.float32, (None, 1), 'terminal')
 
         self.actor = actor
@@ -33,6 +34,8 @@ class DDPG():
         self.lr_critic = params['lr_critic']
         self.eps = params['eps']
         self.action_range = action_range
+
+    def _initialize(self, sess):
         self.sess = sess
 
     def _actor_loss(self, critic_with_actor):
@@ -45,7 +48,9 @@ class DDPG():
     def _critic_loss(self):
         """ L = E[(Q_pred - Q_target)^2]"""
         self.critic_loss = tf.losses.mean_squared_error(
-            self.critic_target, self.critic_Q, reduction=tf.losses.Reduction.MEAN)
+            self.critic_target,
+            self.critic_Q,
+            reduction=tf.losses.Reduction.MEAN)
 
     def _critic_opt(self):
         self.critic_opt = tf.train.AdamOptimizer(learning_rate=self.lr_critic)
@@ -56,19 +61,34 @@ class DDPG():
         batch = self.replaybuffer.sample(self.batch_size)
 
         # target Q value for critic (y in the paper)
-        target_Q = self.rewards+self.discount * \
+        target_Q_op = self.rewards+self.discount * \
             (1.0-self.terminal) * \
             self.target_critic(self.s_1, self.target_actor(self.s_1))
+
+        target_Q = self.sess.run(
+            target_Q_op,
+            feed_dict={
+                self.rewards: batch['rewards'],
+                self.terminal: batch['terminal'],
+                self.s_1: batch['s1']
+            })
 
         var_list_critic = tf.trainable_variables(scope='critic')
         var_list_actor = tf.trainable_variables(scope='actor')
         critic_train_op = self.critic_opt.minimize(
-            loss=self.critic_loss, global_step=global_step, var_list=var_list_critic)
+            loss=self.critic_loss,
+            global_step=global_step,
+            var_list=var_list_critic)
         actor_train_op = self.actor_opt.minimize(
             self.actor_loss, global_step=global_step, var_list=var_list_actor)
 
-        critic_loss, actor_loss = self.sess.run([critic_train_op, actor_train_op], feed_dict={
-            self.s_0: batch['s0'], self.actions: batch['a'], self.critic_target: target_Q})
+        critic_loss, actor_loss = self.sess.run(
+            [critic_train_op, actor_train_op],
+            feed_dict={
+                self.s_0: batch['s0'],
+                self.actions: batch['a'],
+                self.critic_target: target_Q
+            })
 
         return critic_loss, actor_loss
 
@@ -82,7 +102,8 @@ class DDPG():
         for var, var_target in zip(vars, vars_target):
             tf.logging.info('{} -> {}'.format(var.name, var_target.name))
             update_target_op.append(
-                tf.assign(var_target, (1.0-self.decay)*var+self.decay*var))
+                tf.assign(var_target,
+                          (1.0 - self.decay) * var + self.decay * var))
 
         self.sess.run(update_target_op)
 
@@ -103,16 +124,28 @@ class DDPG():
         if eps_greedy:
             action = self.eps_policy(state)
             if compute_V:
-                Q = self.sess.run(self.critic, feed_dict={
-                                  self.s_0: state, self.actions: action})
+                Q = self.sess.run(
+                    self.critic,
+                    feed_dict={
+                        self.s_0: state,
+                        self.actions: action
+                    })
             else:
                 Q = None
         else:
             if compute_V:
-                action, Q = self.sess.run([self.actor_A, self.critic(
-                    self.s_0, self.actor_A)], feed_dict={self.s_0: state})
+                action, Q = self.sess.run(
+                    [self.actor_A,
+                     self.critic(self.s_0, self.actor_A)],
+                    feed_dict={self.s_0: state})
             else:
                 action = self.sess.run(
                     self.actor_A, feed_dict={self.s_0: state})
                 Q = None
         return action, Q
+
+    def debug(self):
+        """ Add parameters to tensorboard for monitoring"""
+
+        tf.summary.scalar('critic_loss', self.critic_loss)
+        tf.summary.scalar('actor_loss', self.actor_loss)
