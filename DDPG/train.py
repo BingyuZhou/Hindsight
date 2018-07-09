@@ -40,5 +40,7 @@ def train(actor, critic, env, params, num_epoch, num_cycle, num_episode,
                         if (r == 0):
                             env.reset()
                             break
-                    for n_i in range(num_train):
-                        critic_ls, actor_ls = agent.train(global_step)
+                for n_i in range(num_train):
+                    critic_ls, actor_ls = agent.train(global_step)
+
+                agent.update_target_nn()
