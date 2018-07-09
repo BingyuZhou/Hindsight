@@ -92,12 +92,14 @@ class DDPG():
 
         return critic_loss, actor_loss
 
-    def update_target_nn(self, vars, vars_target):
+    def update_target_nn(self):
         """Update the target networks to slowly track the current
         optimized Actor and Critic respectively
         """
         tf.logging.info('---Start updating target nets---')
         update_target_op = []
+        #TODO
+        vars = 
         assert len(vars) == len(vars_target)
         for var, var_target in zip(vars, vars_target):
             tf.logging.info('{} -> {}'.format(var.name, var_target.name))
