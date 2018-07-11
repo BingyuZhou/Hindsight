@@ -25,7 +25,9 @@ class DDPG():
         self.critic_Q = critic(self.s_0, self.actions)
         self.actor_A = actor(self.s_0)
         self.target_actor = copy(actor)
+        self.target_actor.name = 'target_actor'
         self.target_critic = copy(critic)
+        self.target_critic.name = 'target_critic'
 
         self.discount = params['discount']
         self.decay = params['decay']
@@ -97,17 +99,29 @@ class DDPG():
         optimized Actor and Critic respectively
         """
         tf.logging.info('---Start updating target nets---')
-        update_target_op = []
-        #TODO
-        vars = 
-        assert len(vars) == len(vars_target)
-        for var, var_target in zip(vars, vars_target):
+        update_target_critic_op = []
+        update_target_actor_op = []
+
+        vars_critic = self.critic.trainable_var()
+        vars_critic_target = self.target_critic.trainable_var()
+        vars_actor = self.actor.trainable_var()
+        vars_actor_target = self.target_actor.trainable_var()
+        assert len(vars_critic) == len(vars_critic_target)
+        assert len(vars_actor) == len(vars_actor_target)
+        for var, var_target in zip(vars_critic, vars_critic_target):
             tf.logging.info('{} -> {}'.format(var.name, var_target.name))
-            update_target_op.append(
+            update_target_critic_op.append(
                 tf.assign(var_target,
                           (1.0 - self.decay) * var + self.decay * var))
 
-        self.sess.run(update_target_op)
+        for var, var_target in zip(vars_actor, vars_actor_target):
+            tf.logging.info('{} -> {}'.format(var.name, var_target.name))
+            update_target_actor_op.append(
+                tf.assign(var_target,
+                          (1.0 - self.decay) * var + self.decay * var))
+
+        self.sess.run(update_target_critic_op)
+        self.sess.run(update_target_actor_op)
 
     def eps_policy(self, state):
         """ Epsilon-greedy policy"""

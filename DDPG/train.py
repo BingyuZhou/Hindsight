@@ -18,7 +18,7 @@ def train(actor, critic, env, params, num_epoch, num_cycle, num_episode,
                  action_shape, action_range)
     global_step = tf.train.get_or_create_global_step()
     with tf.Session() as sess:
-        DDPG._initialize(sess)
+        agent._initialize(sess)
         writer = tf.summary.FileWriter('./summary/', sess.graph)
         init = tf.global_variables_initializer()
         sess.run(init)
@@ -43,4 +43,13 @@ def train(actor, critic, env, params, num_epoch, num_cycle, num_episode,
                 for n_i in range(num_train):
                     critic_ls, actor_ls = agent.train(global_step)
 
+                    if (n_i % 2 == 0):
+                        tf.logging.info(
+                            'Epoch {0} Cycle {1} Iteration {2}: critic_ls {3:.2g}, actor_ls {4:.2g}'.
+                            format(n_e, n_cy, n_i, critic_ls, actor_ls))
+
                 agent.update_target_nn()
+
+        writer.close()
+        saver = tf.train.Saver()
+        saver.save(sess, '/tmp/model.ckpt')

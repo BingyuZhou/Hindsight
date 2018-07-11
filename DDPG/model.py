@@ -6,7 +6,13 @@ import numpy as np
 
 
 class Actor:
-    def __init__(self, hid_layer, batch_norm=False, action_shape, name):
+    def __init__(
+            self,
+            hid_layer,
+            action_shape,
+            name,
+            batch_norm=False,
+    ):
         self.hid_layer = hid_layer
         self.batch_norm = batch_norm
         self.action_shape = action_shape
@@ -33,25 +39,25 @@ class Actor:
         return output
 
     def trainable_var(self):
-        var_list = tf.get_collection(
-            tf.GraphKeys.TRAINABLE_VARIABLES, self.name)
+        var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+                                     self.name)
 
         return var_list
 
 
 class Critic:
-    def __init__(self, hid_layer, batch_norm, name):
+    def __init__(self, hid_layer, name, batch_norm=False):
         self.hid_layer = hid_layer
         self.batch_norm = batch_norm
         self.name = name
 
     def __call__(self, state, action):
-        with tf.variabl_scope(self.name):
+        with tf.variable_scope(self.name):
             x = tf.concat(1, [state, action])
 
             if self.batch_norm:
                 for hid in self.hid_layer:
-                    x = tf.layers.dense(x, , hid, activation=None)
+                    x = tf.layers.dense(x, hid, activation=None)
                     x = tf.layers.batch_normalization(x)
                     x = tf.nn.relu(x)
             else:
@@ -64,7 +70,7 @@ class Critic:
         return output
 
     def trainable_var(self):
-        var_list = tf.get_collection(
-            tf.GraphKeys.TRAINABLE_VARIABLES, self.name)
+        var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+                                     self.name)
 
         return var_list
