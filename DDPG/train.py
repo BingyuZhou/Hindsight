@@ -3,9 +3,9 @@ import tensorflow as tf
 import numpy as np
 
 
-def train(actor, critic, env, params, num_epoch, num_cycle, num_episode,
-          num_rollout, num_train, replaybuffer, state_shape, action_shape,
-          action_range):
+def train(actor, critic, env, env_evl, params, num_epoch, num_cycle,
+          num_episode, num_rollout, num_train, replaybuffer, state_shape,
+          action_shape, action_range):
 
     discount = params['discount']
     decay = params['decay']
@@ -14,8 +14,8 @@ def train(actor, critic, env, params, num_epoch, num_cycle, num_episode,
     lr_critic = params['lr_critic']
     eps = params['eps']
 
-    agent = DDPG(actor, critic, replaybuffer, params, state_shape,
-                 action_shape, action_range)
+    agent = DDPG.DDPG(actor, critic, replaybuffer, params, state_shape,
+                      action_shape, action_range)
     global_step = tf.train.get_or_create_global_step()
     with tf.Session() as sess:
         agent._initialize(sess)
@@ -49,6 +49,23 @@ def train(actor, critic, env, params, num_epoch, num_cycle, num_episode,
                             format(n_e, n_cy, n_i, critic_ls, actor_ls))
 
                 agent.update_target_nn()
+
+                # Evaluate
+                tf.logging.info('-------Evaluate---------')
+                tf.logging.info('Q value: ')
+                for n_roll in range(num_rollout):
+                    a, Q = agent.pi(env_evl.state, False, True)
+                    tf.logging.info('{} '.format(Q))
+                    env_evl.update_action(a)
+                    reward = env_evl.reward(env_evl.state)
+                    if reward == 0:
+                        break
+
+                if reward == 0:
+                    tf.logging.info('Success')
+                else:
+                    tf.logging.info('Fail')
+                env_evl.reset()
 
         writer.close()
         saver = tf.train.Saver()

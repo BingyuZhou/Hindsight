@@ -28,4 +28,17 @@ class ReplayBuffer():
         else:
             sample_index = np.random.choice(
                 self.buffer.shape[0], size, replace=True)
-        return np.copy(self.buffer[sample_index])
+
+        result = {}
+        result['s0'] = np.concatenate(
+            (self.buffer[sample_index, 0:self.n],
+             self.buffer[sample_index, self.n:2 * self.n]),
+            axis=1)
+        result['s1'] = np.concatenate(
+            (self.buffer[sample_index, 2 * self.n + 1:3 * self.n + 1],
+             self.buffer[sample_index, self.n:2 * self.n]),
+            axis=1)
+        result['reward'] = self.buffer[sample_index, 3 * self.n + 1:]
+        result['terminal'] = np.zeros((size, 1))
+        result['terminal'][result['reward'] == 0] = 1
+        return result
