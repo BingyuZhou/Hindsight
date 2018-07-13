@@ -10,10 +10,10 @@ class ReplayBuffer():
 
     def add(self, s, g, a, s_next, r):
         sequence = np.concatenate(
-            (s.reshape(1, self.n), g.reshape(1, self.n), np.array([[a]]),
+            (s.reshape(1, self.n), g.reshape(1, self.n), a.reshape(1, -1),
              s_next.reshape(1, self.n), np.array([[r]])),
             axis=1)
-        # print(sequence)
+        print(sequence)
         if (self.buffer.shape[0] > self.replay_buffer_size):
             self.buffer[int(self.end_index), :] = sequence
             self.end_index = np.mod(self.end_index + 1,
@@ -38,7 +38,8 @@ class ReplayBuffer():
             (self.buffer[sample_index, 2 * self.n + 1:3 * self.n + 1],
              self.buffer[sample_index, self.n:2 * self.n]),
             axis=1)
-        result['reward'] = self.buffer[sample_index, 3 * self.n + 1:]
+        result['rewards'] = self.buffer[sample_index, 3 * self.n + 1:]
         result['terminal'] = np.zeros((size, 1))
-        result['terminal'][result['reward'] == 0] = 1
+        result['terminal'][result['rewards'] == 0] = 1
+        result['a'] = self.buffer[sample_index, 2 * self.n:2 * self.n + 1]
         return result

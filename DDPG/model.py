@@ -32,10 +32,9 @@ class Actor:
                 for hid in self.hid_layer:
                     x = tf.layers.dense(input, hid, activation=tf.nn.relu)
                     input = x
-
-            # Probability of each possible action
-            output = tf.layers.dense(input, self.action_shape, activation=None)
-
+            # Directly compute action
+            output = tf.layers.dense(
+                input, self.action_shape, activation=tf.nn.sigmoid)
         return output
 
     def trainable_var(self):
@@ -51,9 +50,11 @@ class Critic:
         self.batch_norm = batch_norm
         self.name = name
 
-    def __call__(self, state, action):
-        with tf.variable_scope(self.name):
-            x = tf.concat(1, [state, action])
+    def __call__(self, state, action, reuse=False):
+        with tf.variable_scope(self.name) as scope:
+            if reuse:
+                scope.reuse_variables()
+            x = tf.concat([state, action], 1)
 
             if self.batch_norm:
                 for hid in self.hid_layer:

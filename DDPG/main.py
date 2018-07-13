@@ -1,3 +1,4 @@
+import argparse
 import numpy as np
 import tensorflow as tf
 from train import train
@@ -22,7 +23,7 @@ def main(num_bit, hid_layer_critic, hid_layer_actor, num_epoch, num_cycle,
 
     # Architecture for models
     critic = Critic(hid_layer_critic, 'critic', False)
-    actor = Actor(hid_layer_actor, num_bit, 'actor', False)
+    actor = Actor(hid_layer_actor, 1, 'actor', False)
 
     # Training
     params = {}
@@ -35,7 +36,7 @@ def main(num_bit, hid_layer_critic, hid_layer_actor, num_epoch, num_cycle,
 
     num_rollout = num_bit
     state_shape = 2 * num_bit
-    action_shape = num_bit
+    action_shape = 1
     action_range = [0, num_bit - 1]
 
     tf.logging.info('*******Start training*********')
@@ -44,26 +45,46 @@ def main(num_bit, hid_layer_critic, hid_layer_actor, num_epoch, num_cycle,
           action_shape, action_range)
 
     # Testing
-    tf.logging.info('********Testing********')
-    env_test = bf(num_bit)
-    agent = DDPG.DDPG(actor, critic, replaybuffer, params, state_shape,
-                      action_shape, action_range)
+    # tf.logging.info('********Testing********')
+    # env_test = bf(num_bit)
+    # agent = DDPG(actor, critic, replaybuffer, params, state_shape,
+    #              action_shape, action_range)
 
-    saver = tf.train.Saver()
-    with tf.Session() as sess:
-        tf.logging.infor('restore model...')
-        saver.restore(sess, '/tmp/model.ckpt')
+    # saver = tf.train.Saver()
+    # with tf.Session() as sess:
+    #     tf.logging.infor('restore model...')
+    #     saver.restore(sess, '/tmp/model.ckpt')
 
-        success = 0
-        for i in range(100):
-            for j in range(num_bit):
-                a, Q = agent.pi(env_test.state, False, True)
+    #     success = 0
+    #     for i in range(100):
+    #         for j in range(num_bit):
+    #             a, Q = agent.pi(env_test.state, False, True)
 
-                env_test.update_state(a)
-                reward = env_test.reward(env_test.state)
+    #             env_test.update_state(a)
+    #             reward = env_test.reward(env_test.state)
 
-                if reward == 0:
-                    success += 1
-                    break
-            env_test.reset()
-        tf.logging.info('success rate {}'.format(success / 100.0))
+    #             if reward == 0:
+    #                 success += 1
+    #                 break
+    #         env_test.reset()
+    #     tf.logging.info('success rate {}'.format(success / 100.0))
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+    parser.add_argument(
+        '--num-bit', type=int, help='number of bits', default=5, required=True)
+    parser.add_argument(
+        '--hid-layer-critic', nargs='+', default=[1], required=True)
+    parser.add_argument(
+        '--hid-layer-actor', nargs='+', default=[1], required=True)
+    parser.add_argument('--num-epoch', type=int, default=10, required=True)
+    parser.add_argument('--num-cycle', type=int, default=5, required=True)
+    parser.add_argument('--num-episode', type=int, default=16, required=True)
+    parser.add_argument('--num-train', type=int, default=30, required=True)
+
+    args = parser.parse_args()
+    dict_args = vars(args)
+    main(**dict_args)

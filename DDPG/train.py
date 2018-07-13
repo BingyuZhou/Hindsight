@@ -14,14 +14,15 @@ def train(actor, critic, env, env_evl, params, num_epoch, num_cycle,
     lr_critic = params['lr_critic']
     eps = params['eps']
 
-    agent = DDPG.DDPG(actor, critic, replaybuffer, params, state_shape,
-                      action_shape, action_range)
-    global_step = tf.train.get_or_create_global_step()
+    agent = DDPG(actor, critic, replaybuffer, params, state_shape,
+                 action_shape, action_range)
+
     with tf.Session() as sess:
         agent._initialize(sess)
+
         writer = tf.summary.FileWriter('./summary/', sess.graph)
-        init = tf.global_variables_initializer()
-        sess.run(init)
+
+        tf.logging.set_verbosity(tf.logging.INFO)
 
         for n_e in range(num_epoch):
             for n_cy in range(num_cycle):
@@ -30,9 +31,12 @@ def train(actor, critic, env, env_evl, params, num_epoch, num_cycle,
                     for n_roll in range(num_rollout):
 
                         s = np.copy(env.state)
-                        a, _ = agent.pi(s, eps_greedy=True, compute_V=True)
+                        state = np.concatenate(
+                            (s.reshape(1, -1), env.goal.reshape(1, -1)),
+                            axis=1)
+                        a, _ = agent.pi(state, eps_greedy=True, compute_V=True)
 
-                        s_next = env.update_state(a)
+                        s_next = env.update_state(action_range[1] * a)
                         r = env.reward(s_next)
 
                         replaybuffer.add(s, env.goal, a, s_next, r)
@@ -41,11 +45,11 @@ def train(actor, critic, env, env_evl, params, num_epoch, num_cycle,
                             env.reset()
                             break
                 for n_i in range(num_train):
-                    critic_ls, actor_ls = agent.train(global_step)
+                    critic_ls, actor_ls = agent.train()
 
                     if (n_i % 2 == 0):
                         tf.logging.info(
-                            'Epoch {0} Cycle {1} Iteration {2}: critic_ls {3:.2g}, actor_ls {4:.2g}'.
+                            'Epoch {} Cycle {} Iteration {}: critic_ls {:.2g}, actor_ls {:.2g}'.
                             format(n_e, n_cy, n_i, critic_ls, actor_ls))
 
                 agent.update_target_nn()
@@ -54,9 +58,12 @@ def train(actor, critic, env, env_evl, params, num_epoch, num_cycle,
                 tf.logging.info('-------Evaluate---------')
                 tf.logging.info('Q value: ')
                 for n_roll in range(num_rollout):
-                    a, Q = agent.pi(env_evl.state, False, True)
+                    s = np.copy(env.state)
+                    state = np.concatenate(
+                        (s.reshape(1, -1), env.goal.reshape(1, -1)), axis=1)
+                    a, Q = agent.pi(state, False, True)
                     tf.logging.info('{} '.format(Q))
-                    env_evl.update_action(a)
+                    env_evl.update_state(action_range[1] * a)
                     reward = env_evl.reward(env_evl.state)
                     if reward == 0:
                         break

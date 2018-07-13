@@ -24,6 +24,7 @@ class DDPG():
         self.replaybuffer = replaybuffer
         self.critic_Q = critic(self.s_0, self.actions)
         self.actor_A = actor(self.s_0)
+        self.critic_with_actor = critic(self.s_0, self.actor_A, reuse=True)
         self.target_actor = copy(actor)
         self.target_actor.name = 'target_actor'
         self.target_critic = copy(critic)
@@ -36,56 +37,62 @@ class DDPG():
         self.lr_critic = params['lr_critic']
         self.eps = params['eps']
         self.action_range = action_range
-
-    def _initialize(self, sess):
-        self.sess = sess
-
-    def _actor_loss(self, critic_with_actor):
         """ L = -E[Q(s, pi(s))]"""
-        self.actor_loss = -tf.reduce_mean(critic_with_actor)
-
-    def _actor_opt(self):
-        self.actor_opt = tf.train.AdamOptimizer(learning_rate=self.lr_actor)
-
-    def _critic_loss(self):
+        self.actor_loss = -tf.reduce_mean(self.critic_with_actor)
+        self.actor_opt = tf.train.AdamOptimizer(
+            learning_rate=self.lr_actor,
+            beta1=0.9,
+            beta2=0.999,
+            name='Adam_actor')
         """ L = E[(Q_pred - Q_target)^2]"""
         self.critic_loss = tf.losses.mean_squared_error(
             self.critic_target,
             self.critic_Q,
             reduction=tf.losses.Reduction.MEAN)
+        self.critic_opt = tf.train.AdamOptimizer(
+            learning_rate=self.lr_critic,
+            beta1=0.9,
+            beta2=0.999,
+            name='Adam_critic')
 
-    def _critic_opt(self):
-        self.critic_opt = tf.train.AdamOptimizer(learning_rate=self.lr_critic)
+        var_list_critic = tf.trainable_variables(scope='critic')
+        var_list_actor = tf.trainable_variables(scope='actor')
+        global_step = tf.train.get_or_create_global_step()
+        self.critic_train_op = self.critic_opt.minimize(
+            loss=self.critic_loss,
+            global_step=global_step,
+            var_list=var_list_critic)
+        self.actor_train_op = self.actor_opt.minimize(
+            self.actor_loss, global_step=global_step, var_list=var_list_actor)
 
-    def train(self, global_step):
+        # target Q value for critic (y in the paper)
+        self.target_Q_op = self.rewards+self.discount * \
+            (1.0-self.terminal) * \
+            self.target_critic(self.s_1, self.target_actor(self.s_1))
+
+    def _initialize(self, sess):
+        self.sess = sess
+        init = tf.global_variables_initializer()
+        self.sess.run(init)
+
+    def train(self):
         """ One step optimization of the Actor
         and Critic network"""
         batch = self.replaybuffer.sample(self.batch_size)
 
-        # target Q value for critic (y in the paper)
-        target_Q_op = self.rewards+self.discount * \
-            (1.0-self.terminal) * \
-            self.target_critic(self.s_1, self.target_actor(self.s_1))
-
         target_Q = self.sess.run(
-            target_Q_op,
+            self.target_Q_op,
             feed_dict={
                 self.rewards: batch['rewards'],
                 self.terminal: batch['terminal'],
                 self.s_1: batch['s1']
             })
 
-        var_list_critic = tf.trainable_variables(scope='critic')
-        var_list_actor = tf.trainable_variables(scope='actor')
-        critic_train_op = self.critic_opt.minimize(
-            loss=self.critic_loss,
-            global_step=global_step,
-            var_list=var_list_critic)
-        actor_train_op = self.actor_opt.minimize(
-            self.actor_loss, global_step=global_step, var_list=var_list_actor)
-
-        critic_loss, actor_loss = self.sess.run(
-            [critic_train_op, actor_train_op],
+        _, _, critic_loss, actor_loss = self.sess.run(
+            [
+                self.critic_train_op, self.actor_train_op, self.critic_loss,
+                self.actor_loss
+            ],
             feed_dict={
                 self.s_0: batch['s0'],
                 self.actions: batch['a'],
@@ -126,7 +133,8 @@ class DDPG():
     def eps_policy(self, state):
         """ Epsilon-greedy policy"""
         if (random.random() < self.eps):
-            action = random.randint(self.action_range[0], self.action_range[1])
+            action = random.uniform(0, 1)
+            action = np.array(action)
         else:
             action = self.sess.run(self.actor_A, feed_dict={self.s_0: state})
         return action
@@ -141,18 +149,19 @@ class DDPG():
             action = self.eps_policy(state)
             if compute_V:
                 Q = self.sess.run(
-                    self.critic,
+                    self.critic_Q,
                     feed_dict={
-                        self.s_0: state,
-                        self.actions: action
+                        self.s_0:
+                        state,
+                        self.actions:
+                        np.asarray(action, dtype=np.float32).reshape((-1, 1))
                     })
             else:
                 Q = None
         else:
             if compute_V:
                 action, Q = self.sess.run(
-                    [self.actor_A,
-                     self.critic(self.s_0, self.actor_A)],
+                    [self.actor_A, self.critic_with_actor],
                     feed_dict={self.s_0: state})
             else:
                 action = self.sess.run(
