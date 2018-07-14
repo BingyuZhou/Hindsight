@@ -50,6 +50,7 @@ class DQN:
                     hid,
                     activation=tf.nn.relu,
                     kernel_initializer=init,
+                    kernel_regularizer=tf.contrib.layers.l2_regularizer(0.01),
                     trainable=is_training)
                 input = h
             Q_pred = tf.layers.dense(
@@ -79,7 +80,7 @@ class DQN:
         """
         p = random.random()
 
-        eps_current = max(0.2, self.eps - 8e-4 * global_i)
+        eps_current = max(0.02, np.exp(-2.3e-3*global_i))
 
         if (p < eps_current):  # random action
             action = random.randint(0, self.n - 1)
@@ -114,13 +115,13 @@ class DQN:
         a_onehot = tf.one_hot(action, self.n)
 
         # Loss
-        # Q_pred = tf.reduce_sum(self.model * a_onehot, axis=1)
-        # errors = tf.losses.huber_loss(y, Q_pred)
-        # loss = tf.reduce_mean(errors)
-        loss = tf.losses.mean_squared_error(
-            y,
-            tf.reduce_sum(tf.multiply(self.model, a_onehot), axis=1),
-            reduction=tf.losses.Reduction.MEAN)
+        Q_pred = tf.reduce_sum(self.model * a_onehot, axis=1)
+        errors = tf.losses.huber_loss(y, Q_pred)
+        loss = tf.reduce_mean(errors)
+        # loss = tf.losses.mean_squared_error(
+        #     y,
+        #     tf.reduce_sum(tf.multiply(self.model, a_onehot), axis=1),
+        #     reduction=tf.losses.Reduction.MEAN)
 
         tf.summary.scalar('loss', loss)
 
@@ -245,7 +246,8 @@ class DQN:
                         'Epoch {0} Cycle {1}: loss is {2:.3g}, success rate {3:3g}'.
                         format(e, cycle, ls, success / episode))
                     # Update target model every certain steps
-                    self.update_target_model(sess)
+                    if cycle % 1 == 0:
+                        self.update_target_model(sess)
 
             writer.close()
             saver = tf.train.Saver()
