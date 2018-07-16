@@ -18,9 +18,12 @@ class Actor:
         self.action_shape = action_shape
         self.name = name
 
-    def __call__(self, state):
+    def __call__(self, state, reuse=False):
 
-        with tf.variable_scope(self.name):
+        with tf.variable_scope(self.name) as scope:
+            if reuse:
+                scope.reuse_variables()
+
             input = state
 
             if self.batch_norm:

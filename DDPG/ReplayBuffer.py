@@ -13,7 +13,7 @@ class ReplayBuffer():
             (s.reshape(1, self.n), g.reshape(1, self.n), a.reshape(1, -1),
              s_next.reshape(1, self.n), np.array([[r]])),
             axis=1)
-        print(sequence)
+        # print(sequence)
         if (self.buffer.shape[0] > self.replay_buffer_size):
             self.buffer[int(self.end_index), :] = sequence
             self.end_index = np.mod(self.end_index + 1,

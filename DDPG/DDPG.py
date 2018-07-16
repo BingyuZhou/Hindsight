@@ -29,6 +29,10 @@ class DDPG():
         self.target_actor.name = 'target_actor'
         self.target_critic = copy(critic)
         self.target_critic.name = 'target_critic'
+        self.target_critic_Q = self.target_critic(self.s_0, self.actor_A)
+        self.target_actor_A = self.target_actor(self.s_0)
+        self.target_critic_with_actor = self.target_critic(
+            self.s_0, self.target_actor_A, reuse=True)
 
         self.discount = params['discount']
         self.decay = params['decay']
@@ -68,7 +72,7 @@ class DDPG():
         # target Q value for critic (y in the paper)
         self.target_Q_op = self.rewards+self.discount * \
             (1.0-self.terminal) * \
-            self.target_critic(self.s_1, self.target_actor(self.s_1))
+            self.target_critic(self.s_1, self.target_actor(self.s_1, reuse=True), reuse=True)
 
     def _initialize(self, sess):
         self.sess = sess
@@ -119,13 +123,13 @@ class DDPG():
             tf.logging.info('{} -> {}'.format(var.name, var_target.name))
             update_target_critic_op.append(
                 tf.assign(var_target,
-                          (1.0 - self.decay) * var + self.decay * var))
+                          (1.0 - self.decay) * var + self.decay * var_target))
 
         for var, var_target in zip(vars_actor, vars_actor_target):
             tf.logging.info('{} -> {}'.format(var.name, var_target.name))
             update_target_actor_op.append(
                 tf.assign(var_target,
-                          (1.0 - self.decay) * var + self.decay * var))
+                          (1.0 - self.decay) * var + self.decay * var_target))
 
         self.sess.run(update_target_critic_op)
         self.sess.run(update_target_actor_op)
@@ -139,7 +143,7 @@ class DDPG():
             action = self.sess.run(self.actor_A, feed_dict={self.s_0: state})
         return action
 
-    def pi(self, state, eps_greedy=False, compute_V=False):
+    def pi(self, state, eps_greedy=False, compute_V=False, using_target=False):
         """ a = actor(state)
         Compute the optimal action from Actor network,
         it is also able to compute the Value of state from
@@ -148,24 +152,45 @@ class DDPG():
         if eps_greedy:
             action = self.eps_policy(state)
             if compute_V:
-                Q = self.sess.run(
-                    self.critic_Q,
-                    feed_dict={
-                        self.s_0:
-                        state,
-                        self.actions:
-                        np.asarray(action, dtype=np.float32).reshape((-1, 1))
-                    })
+                if using_target:
+                    Q = self.sess.run(
+                        self.target_critic_Q,
+                        feed_dict={
+                            self.s_0:
+                            state,
+                            self.actions:
+                            np.asarray(action, dtype=np.float32).reshape((-1,
+                                                                          1))
+                        })
+                else:
+                    Q = self.sess.run(
+                        self.critic_Q,
+                        feed_dict={
+                            self.s_0:
+                            state,
+                            self.actions:
+                            np.asarray(action, dtype=np.float32).reshape((-1,
+                                                                          1))
+                        })
             else:
                 Q = None
         else:
             if compute_V:
-                action, Q = self.sess.run(
-                    [self.actor_A, self.critic_with_actor],
-                    feed_dict={self.s_0: state})
+                if using_target:
+                    action, Q = self.sess.run(
+                        [self.target_actor_A, self.target_critic_with_actor],
+                        feed_dict={self.s_0: state})
+                else:
+                    action, Q = self.sess.run(
+                        [self.actor_A, self.critic_with_actor],
+                        feed_dict={self.s_0: state})
             else:
-                action = self.sess.run(
-                    self.actor_A, feed_dict={self.s_0: state})
+                if using_target:
+                    action = self.sess.run(
+                        self.target_actor_A, feed_dict={self.s_0: state})
+                else:
+                    action = self.sess.run(
+                        self.actor_A, feed_dict={self.s_0: state})
                 Q = None
         return action, Q
 

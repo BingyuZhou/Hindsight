@@ -6,6 +6,15 @@ from DDPG import DDPG
 from model import Critic, Actor
 from bitflipping import bitflipping as bf
 from ReplayBuffer import ReplayBuffer
+import matplotlib.pyplot as plt
+
+
+def plot_ls(critic_ls_all, actor_ls_all):
+    plt.figure()
+    plt.plot(critic_ls_all, label='critic_ls')
+    plt.plot(actor_ls_all, label='actor_ls')
+    plt.legend()
+    plt.show()
 
 
 def main(num_bit, hid_layer_critic, hid_layer_actor, num_epoch, num_cycle,
@@ -28,11 +37,11 @@ def main(num_bit, hid_layer_critic, hid_layer_actor, num_epoch, num_cycle,
     # Training
     params = {}
     params['discount'] = 0.98
-    params['decay'] = 0.9
-    params['batch_size'] = 64
+    params['decay'] = 0.8
+    params['batch_size'] = 32
     params['lr_actor'] = 0.001
     params['lr_critic'] = 0.001
-    params['eps'] = 0.5
+    params['eps'] = 0.2
 
     num_rollout = num_bit
     state_shape = 2 * num_bit
@@ -40,9 +49,12 @@ def main(num_bit, hid_layer_critic, hid_layer_actor, num_epoch, num_cycle,
     action_range = [0, num_bit - 1]
 
     tf.logging.info('*******Start training*********')
-    train(actor, critic, env, env_evl, params, num_epoch, num_cycle,
-          num_episode, num_rollout, num_train, replaybuffer, state_shape,
-          action_shape, action_range)
+    critic_ls_all, actor_ls_all = train(
+        actor, critic, env, env_evl, params, num_epoch, num_cycle, num_episode,
+        num_rollout, num_train, replaybuffer, state_shape, action_shape,
+        action_range)
+
+    plot_ls(critic_ls_all, actor_ls_all)
 
     # Testing
     # tf.logging.info('********Testing********')

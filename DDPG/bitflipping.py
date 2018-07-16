@@ -42,7 +42,8 @@ class bitflipping:
 
     def update_state(self, action):
         assert action < self.n, "Action is not allowed!"
-        self.state[int(action)] = 1 - self.state[int(action)]
+        self.state[int(
+            np.around(action))] = 1 - self.state[int(np.around(action))]
         return np.copy(self.state)
 
     def reward(self, state, goal=None):
